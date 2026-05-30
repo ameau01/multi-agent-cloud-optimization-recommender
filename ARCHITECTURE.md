@@ -172,7 +172,7 @@ The Evaluator has three sub-steps in sequence:
 ```mermaid
 flowchart TB
     %% Node Definitions
-    IN(["Input Payload<br/>Specialist findings, up to 3, & cross-tier mapping"] )
+    IN(["Input Payload<br/>Specialist findings, up to 3, & cross-tier mapping"])
   
     S1["Step 1: Specialist Drift-Check<br/>Validates evidence binding<br/>Identifies internal contradictions<br/>Flags unsupported claims"]
   
