@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Created project skeletion with `pyproject.toml`, `requirement.txt`
 - Added MIT standard license 
 - Add project architecture and design documentation: `ARCHITECTURE.md` and `README.md`
+- Add supporting design doc under `docs\` folder
 
 ### Documentation
 - `ARCHITECTURE.md` and `README.md`

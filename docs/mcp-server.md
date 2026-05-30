@@ -33,53 +33,53 @@ Every tool is keyed on `app_name`, mimicking an alert that fires against a named
 
 The server is thin in logic and rich in named operations. Each tool is a trivial read against the fixed dataset files, computing nothing an agent could not compute for itself. The richness is in the names, not the behavior. Two things follow from naming each read operation separately rather than collapsing them into a few generic calls. Each call logs as its own auditable step, so a reviewer reading the trail sees `detect_threshold_breaches` rather than a generic read whose meaning is buried in its parameters. And the per-tier partitioning lets the Action Harness scope a specialist structurally: a Compute Analyst's toolset contains only compute operations, so an out-of-tier read is impossible at the tool layer, not merely refused after the fact.
 
-The names are identical internally and over the wire. In the signatures below, an argument written `name=value` is optional and shows its default; all other arguments are required.
+The names are identical internally and over the wire.
 
 ### Per-tier telemetry surface
 
 The Tier Specialists' vocabulary. Each operation is parameterized by `app_name`, `tier`, and the metric it reads. The per-tier composition (which tier each specialist is allowed to pass) is defined in [`agents.md`](agents.md).
 
-| Operation                                                       | What it returns                               |
-| --------------------------------------------------------------- | --------------------------------------------- |
-| `get_time_series(app_name, tier, metric, window='full')`        | per-window values for one metric              |
-| `get_summary_statistics(app_name, tier, metric, window='full')` | p50, p90, p95, and mean for one metric        |
-| `get_time_pattern(app_name, tier, metric, granularity='hour')`  | the temporal pattern (hourly, daily) of a metric |
-| `detect_threshold_breaches(app_name, tier, metric)`             | the windows where a metric breaches its band  |
-| `get_metric_distribution(app_name, tier, metric)`               | the metric's distribution across the window   |
-| `get_configuration(app_name, tier)`                             | the tier's instance class, count, and scaling config |
+| Operation                                           | What it returns                                      |
+| --------------------------------------------------- | ---------------------------------------------------- |
+| `get_time_series(app_name, tier, metric)`           | per-window values for one metric                     |
+| `get_summary_statistics(app_name, tier, metric)`    | p50, p90, p95, and mean for one metric               |
+| `get_time_pattern(app_name, tier, metric)`          | the temporal pattern (hourly, daily) of a metric     |
+| `detect_threshold_breaches(app_name, tier, metric)` | the windows where a metric breaches its band         |
+| `get_metric_distribution(app_name, tier, metric)`   | the metric's distribution across the window          |
+| `get_configuration(app_name, tier)`                 | the tier's instance class, count, and scaling config |
 
 ### Shared context operations
 
 Available to every specialist, independent of tier.
 
-| Operation                             | What it returns                              |
-| ------------------------------------- | -------------------------------------------- |
+| Operation                             | What it returns                               |
+| ------------------------------------- | --------------------------------------------- |
 | `get_business_context(app_name)`      | the application's criticality and description |
-| `get_sla_target(app_name)`            | the SLA target (availability and p95)        |
-| `get_monthly_cost(app_name)`          | the per-tier and total monthly cost baseline |
+| `get_sla_target(app_name)`            | the SLA target (availability and p95)         |
+| `get_monthly_cost(app_name)`          | the per-tier and total monthly cost baseline  |
 | `get_before_after_evidence(app_name)` | the recorded outcome of a prior config change |
 
 ### Per-tier specials
 
-Each appears only on the surface of the specialist that needs it. The `limit` argument is optional and defaults to 10.
+Each appears only on the surface of the specialist that needs it.
 
-| Operation                              | Available to       |
-| -------------------------------------- | ------------------ |
-| `get_per_instance_breakout(app_name)`  | Compute Analyst    |
-| `get_top_queries(app_name, limit=10)`  | Data Layer Analyst |
-| `get_top_cache_keys(app_name, limit=10)` | Data Layer Analyst |
+| Operation                             | Available to       |
+| ------------------------------------- | ------------------ |
+| `get_per_instance_breakout(app_name)` | Compute Analyst    |
+| `get_top_queries(app_name)`           | Data Layer Analyst |
+| `get_top_cache_keys(app_name)`        | Data Layer Analyst |
 
 ### Scenario and dataset surface
 
 A separate surface, deliberately kept off every specialist's toolset.
 
-| Operation                                  | Consumer                                  |
-| ------------------------------------------ | ----------------------------------------- |
-| `list_scenarios()`                         | navigation and external browsing          |
+| Operation                                  | Consumer                                   |
+| ------------------------------------------ | ------------------------------------------ |
+| `list_scenarios()`                         | navigation and external browsing           |
 | `get_scenario_metadata(app_name)`          | navigation; narrative and business context |
-| `get_terraform(app_name)`                  | the System Mapper, as its parsing input   |
-| `get_correlation_evidence(app_name)`       | the Cross-Tier Evaluator                  |
-| `get_handcrafted_recommendation(app_name)` | the evaluator harness only                |
+| `get_terraform(app_name)`                  | the System Mapper, as its parsing input    |
+| `get_correlation_evidence(app_name)`       | the Cross-Tier Evaluator                   |
+| `get_handcrafted_recommendation(app_name)` | the evaluator harness only                 |
 
 Keeping the gold answer off every specialist surface is a scope guarantee, not a convenience. A specialist that could read `get_handcrafted_recommendation` could reason backward from the target, and the evaluation would no longer mean anything. For the same reason `get_terraform` belongs to the System Mapper, whose job is to parse it, and `get_correlation_evidence` belongs to the Evaluator, the only agent that reasons across tiers.
 
