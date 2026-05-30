@@ -15,8 +15,8 @@ Two structural concerns sit perpendicular to each other here:
 Seven commitments shape every other decision.
 
 1. **Recommender, not executor** The system never changes infrastructure state. Every recommendation routes to a human.
-2. **Multi-agent by necessity** Earned, not decorative. Each agent owns a strictly bounded scope. Specialists analyze deeper because their read surface is narrow. If a single agent tries to process compute, network, and database telemetry all at once, it loses focus and outputs shallow analysis. The hierarchical network (Supervisor, Specialists, Evaluator) structurally enforces these strict boundaries.
-3. **Accountability over adversarial defense** Because the system takes no external user input, prompt injection is not a meaningful threat. Our failure modes focus entirely on reasoning quality, consistency, and auditability.
+2. **Multi-agent by necessity** Earned, not decorative. Each agent owns a strictly bounded scope to ensure deep analysis. A single agent processing all telemetry at once produces shallow results. Our hierarchical network structurally enforces these narrow boundaries.
+3. **Accountability over adversarial defense** Since the system takes no external user input, prompt injection is not a threat. We focus entirely on reasoning quality, consistency, and auditability.
 4. **Deliberate synthetic data** Establishing strict ground truth requires hand-crafted scenarios. The dataset is published at [`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations) on Hugging Face.
 5. **Harnesses provide properties, not defenses** Harness layers are designed to enforce structure, safety, and observability. They are not a checklist of security defenses mapped against hypothetical threats.
 6. **Model specialization over scale** We use Haiku for the high-volume, bounded specialist turns, and Sonnet for the single, complex Evaluator synthesis. Cost and capability are matched exactly to the workload.
@@ -160,8 +160,7 @@ flowchart TB
     SUF -->|"Yes, anomaly confirmed"| F
     SUF -->|"Yes, baseline healthy or data missing"| NIF
 ```
-
-**Execution Boundaries:** Each specialist operates within strict structural constraints, utilizing a mandatory ReAct loop to generate the audit trail and a three-state terminal output to prevent action bias. The full mechanical breakdown of these specialists are terminal states are detailed in [`docs/agents.md (Tier Specialists)`](docs/agents.md).
+**Execution Boundaries:** The ReAct loop, terminal states (`issue_found` / `no_issue_found` / `insufficient_data`), and a worked cycle are detailed in [`docs/agents.md`](docs/agents.md).
 
 ## Cross-Tier Evaluator
 
@@ -184,8 +183,7 @@ flowchart TB
     IN --> S1 --> S2 --> S3 --> OUT
 ```
 
-**Evaluator Logic:** The Evaluator follows a strict three-step sequence—enforcing drift-checks *before* mapping cross-tier interactions—to prevent hallucinated findings from polluting the final synthesis. The specific mechanics of this sequence, and the edge cases it explicitly delegates to human-in-the-loop (HITL), are detailed in [docs/agents.md (Cross-Tier Evaluator)](docs/agents.md).
-
+**Evaluator Logic:** The three steps run in strict sequence with drift-check first, so a weak or contradictory finding cannot pollute the final synthesis. Full mechanics and correlated-drift handling are in [`docs/agents.md`](docs/agents.md). 
 
 ## Where Each Harness Applies
 
