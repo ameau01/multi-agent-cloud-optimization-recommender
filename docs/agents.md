@@ -64,7 +64,7 @@ Three specialists run in parallel, each scoped to one tier: **Compute Analyst**,
 
 **Responsibilities**
 
-- **ReAct loop** Form a hypothesis. Query the read surface. Observe. Refine. Conclude. Every cycle is logged to the audit trail.
+- **ReAct loop** Form a hypothesis. Query the read surface. Observe. Refine. Conclude. **This ReAct loop is the foundation of the system's audit trail. A zero-shot approach was rejected because it acts as an unauditable black box; by contrast, the ReAct loop forces the specialist to bind every conclusion to a specific, logged tool observation.** Every cycle is logged to the audit trail.
 - **Evidence-bound reasoning** Every conclusion cites the specific read operations that justified it. The Reasoning Harness enforces this structurally, see [harnesses.md](harnesses.md).
 - **Confidence scoring** A specialist-level confidence combining evidence sufficiency and within-tier pattern strength.
 - **Structured finding output** Emit a finding with an explicit `finding_type`, one of `issue_found`, `no_issue_found`, `insufficient_data`, plus the recommendation (if any), evidence references, and confidence.
@@ -194,7 +194,7 @@ Every observation in this loop is logged to the audit trail.
 
 ## 4. Cross-Tier Evaluator
 
-**Role** The synthesis layer and the system's primary quality gate against single-specialist drift. The architectural keystone, without it, three specialists produce three findings with no mechanism to reconcile them.
+**Role** The synthesis layer and the system's primary quality gate against single-specialist drift. **Crucially, the Evaluator is a synthesis engine, not a "winner-picker." It does not simply vote on or select the best specialist finding; rather, it looks for correlated cross-tier drift that individual specialists cannot see.** The architectural keystone, without it, three specialists produce three findings with no mechanism to reconcile them.
 
 **Responsibilities** Three sub-steps, in sequence.
 

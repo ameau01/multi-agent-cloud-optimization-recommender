@@ -161,9 +161,7 @@ flowchart TB
     SUF -->|"Yes, baseline healthy or data missing"| NIF
 ```
 
-The ReAct trace is the foundation of the audit trail. While a zero-shot specialist produces a black-box verdict with nothing to audit, a ReAct specialist generates a sequence of thoughts, actions, and observations that a human reviewer can explicitly verify.
-
-To prevent the agent from hallucinating or biasing toward inventing problems just to fulfill its mandate, the `finding_type` enum strictly enforces three terminal states: `issue_found`, `no_issue_found`, and `insufficient_data`.
+**Execution Boundaries:** Each specialist operates within strict structural constraints, utilizing a mandatory ReAct loop to generate the audit trail and a three-state terminal output to prevent action bias. The full mechanical breakdown of these specialists are terminal states are detailed in [`docs/agents.md (Tier Specialists)`](docs/agents.md).
 
 ## Cross-Tier Evaluator
 
