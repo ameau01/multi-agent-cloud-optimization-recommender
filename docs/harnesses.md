@@ -1,8 +1,8 @@
 # Harnesses
 
-The four harnesses provide **structure, safety, and observability** across the agent system. They are not adversarial threat defenses, see `../ARCHITECTURE.md` section 3 and section 5 for why this framing matters.
+The four harnesses provide **structure, safety, and observability** across the entire agent system (see [ARCHITECTURE.md](ARCHITECTURE.md) for the high-level philosophy).
 
-This doc covers what each harness provides, where it applies, and why it is shaped the way it is.
+This document details what each harness provides, where it applies, and why it has its current shape.
 
 ## The four harnesses at a glance
 
@@ -131,9 +131,9 @@ A specialist whose ReAct trace shows "observe X, conclude Y", but X and Y are lo
 
 Each drift-check produces a verdict per specialist: `tight`, `loose`, or `contradictory`. All three verdicts are logged to the audit trail.
 
-### Why drift-check is the Evaluator's first step, not its last
+### Why drift-check is first
 
-The Evaluator runs drift-check **before** identifying cross-tier interactions and **before** synthesizing. The order matters: a contradictory specialist finding should not contribute to cross-tier reasoning, and a loose finding should be visible as such before the synthesis combines it with other findings. Running drift-check last would mean the synthesis already happened before drift was noticed.
+The Evaluator runs drift-check **before** cross-tier mapping and synthesis so a weak or contradictory finding cannot pollute the final recommendation.
 
 ### Policy choices that need to be tuned during build
 
@@ -181,7 +181,7 @@ This is what "the audit trail is the visual hero" means in practice. The trail i
 
 ### Why intentionally narrow
 
-The Action Harness in a system that actuates state changes (rather than recommends) would be much larger, whitelisting executable actions, parameter validation against external APIs, idempotency keys, rollback paths. None of that applies here. The system's identity is recommendation under HITL; there is no actuation to gate.
+In a system that actually modifies infrastructure, the Action Harness would be much larger (executable actions, API validation, rollback paths). None of that applies here. This system is purely a recommender under HITL, so the harness stays deliberately narrow.
 
 Inflating the Action Harness to look bigger would dilute the system's identity. The discipline of keeping it small is part of the architectural signal. See `../ARCHITECTURE.md` section 1 and `decisions.md`.
 
