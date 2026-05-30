@@ -62,7 +62,7 @@ What this means in practice:
 
 A developer or reviewer can walk the chain forward or backward. The system's reasoning is not a black box; it is a navigable graph.
 
-**What replayability does NOT mean** LLM output is not deterministic at non-zero temperature. The audit trail captures the **outputs** of every LLM call as a record of what happened. Reproducing the same outputs by re-running the LLM is not guaranteed. Replay reconstructs what occurred; it does not re-derive answers by re-running the model. This caveat is universal to LLM-based systems and is acknowledged here explicitly.
+**What replayability does NOT mean** Replay reconstructs what happened from the stored records. It does not re-run the LLM. LLM outputs are non-deterministic, so the audit trail captures the actual outputs that occurred.
 
 ### What's verifiable today
 

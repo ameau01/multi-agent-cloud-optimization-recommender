@@ -1,12 +1,12 @@
 # Design Decisions and Trade-offs
 
-This document explains the reasoning behind our architectural choices. While the README and ARCHITECTURE.md cover the what and the why, this document focuses on the why not. It is designed for senior reviewers to understand the alternatives we rejected and the trade-offs we accepted.
+This document explains the reasoning behind our architectural choices and the alternatives we rejected. While the README and ARCHITECTURE.md cover the “what” and the “why,” this document focuses on the “why not.” It is written for senior reviewers who want to understand the trade-offs we accepted.
 
 Note: To avoid repetition, detailed implementation mechanisms are not explained here; instead, we link directly to the relevant component documentation.
 
 ## The constraints every decision answers
 
-The README's "The problem" section names the three constraints the problem imposes.
+These are the three constraints from the README's [Three constraints, one architecture](../README.md#three-constraints-one-architecture) section, restated here as the rubric every decision below is judged against.
 
 1. **Recommendations must be transparent.** Every claim is anchored in evidence, and the reasoning chain can be replayed forward or backward.
 2. **The diagnosis must hold up across tiers** — because the cause often sits in a different tier than the symptom. Specialists analyze independently, then an evaluator reconciles them with the wider view.
@@ -54,7 +54,7 @@ Each decision addresses one or more of these constraints. The rejected alternati
 
 **The "Why"**
 
-- **Single source of truth on Hugging Face.** Anyone who clones the agent project picks up the latest dataset via `huggingface_hub.snapshot_download`. A bundled copy silently drifts.
+- **Single source of truth on Hugging Face.** Anyone who clones the project picks up the latest dataset via `huggingface_hub.snapshot_download`. A bundled copy silently drifts.
 - **Real ML convention.** Public datasets get loaded via the `datasets` or library, not vendored. A reviewer who sees `snapshot_download` knows the project follows the convention.
 - **Dataset stays neutral.** It ships data plus a tiny Floor sanity check. Scoring methodology is an opinion that belongs in a consumer project, not bundled with the data. Anyone evaluating against the dataset can pick their own scoring method.
 - **Orchestration owns the discrimination story.** Floor / Mid / Rich tier semantics are how this project demonstrates that orchestration beats single-shot. Those tier checks are part of the project's contribution.
