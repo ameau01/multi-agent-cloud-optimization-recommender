@@ -119,7 +119,7 @@ Take scenario 08: application latency is rising and it looks like a compute prob
 **1. Trigger** A review request arrives. The Input Harness validates the target scenario's data (Terraform + 14 days of telemetry + sidecar metadata). The scenario hash and validation outcomes are logged.
 
 **2. System Mapper** Parses the Terraform. Identifies tiers: compute, database, cache, network. Builds the dependency graph. Produces an analysis plan: "invoke Compute, Data Layer, and Network Analysts; check
-the compute-to-database cross-tier pair."
+the compute-to-database cross-tier pair." Scenario 08 has no cache or network tier, so only Compute and Data Layer Analysts are invoked.
 
 **3. Supervisor** Reads the analysis plan. Decides which specialists to invoke. Logs the invocation manifest.
 
@@ -141,8 +141,7 @@ Finding: issue_found, "optimize the top 6 queries; add 2 read replicas
 
 **5. Compute Analyst** Runs its own ReAct loop. CPU p95 is stable at 27%; application latency tracks database latency, not compute load. Concludes `no_issue_found` — and explicitly does not recommend scaling.
 
-**6. Network Analyst** Sub-millisecond latency, negligible packet loss.
-`no_issue_found`.
+**6. Network Analyst** Not invoked. Scenario 08 has no network tier (`network: None` in the topology), so the Supervisor's analysis plan skips it. The absence is logged.
 
 **7. Cross-Tier Evaluator.** Runs three sub-steps:
 
@@ -188,22 +187,23 @@ The dataset lives at
 ```
 .
 ├── README.md                          # you are here
-├── ARCHITECTURE.md                    # the picture, the flow, the principles
+├── ARCHITECTURE.md                    # The diagram, the flow, the principles
 ├── docs/
-│  ├── agents.md                       # what each of the six agents does
-│  ├── harnesses.md                    # the four cross-cutting properties
-│  ├── audit-trail.md                  # replayability and the schema
+│  ├── agents.md                       # What each of the six agents does
+│  ├── harnesses.md                    # The four cross-cutting properties
+│  ├── audit-trail.md                  # Replayability and the schema
 │  ├── eval-set.md                     # Floor / Mid / Rich scoring
 │  ├── mcp-server.md                   # MCP read contract + dataset loading
-│  └── decisions.md                    # trade-offs, alternatives, limitations
+│  └── decisions.md                    # Trade-offs, alternatives, limitations
 ├── src/
-│  ├── data_loader.py                  # fetches dataset from Hugging Face
-│  ├── agents/                         # multi-agent orchestration
-│  ├── harnesses/                      # input, reasoning, action, audit
+│  ├── data_loader.py                  # Fetches dataset from Hugging Face
+│  ├── agents/                         # Multi-agent orchestration
+│  ├── harnesses/                      # Input, reasoning, action, audit
 │  ├── evaluator/                      # Floor + Mid + Rich tier scorer
 │  └── mcp_server/                     # MCP tool surface implementation
-├── examples/
-│  └── sample_scenario/                # one full scenario for quick inspection
+├── dataset-examples/
+│  ├── scenario_08/                    # Example dataset files for scenario 08
+│  └── tests/                          # Self-contained tests for the static scenario
 └── tests/
     └── fixtures/                      # 1-2 vendored scenarios for unit tests
 ```
