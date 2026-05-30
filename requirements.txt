@@ -1,0 +1,11 @@
+# Multi-Agent Cloud-Optimization Recommender
+#
+# For projects that prefer requirements.txt over pyproject.toml.
+# Authoritative dependency list lives in pyproject.toml; 
+# This file mirrors dependency list..
+
+huggingface_hub>=0.20.0
+anthropic>=0.30.0
+sqlalchemy>=2.0
+python-hcl2>=4.0
+pydantic>=2.0
