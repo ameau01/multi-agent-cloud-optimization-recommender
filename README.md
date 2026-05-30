@@ -6,7 +6,7 @@
 
 ![Status](https://img.shields.io/badge/Status-In%20Active%20Development-yellow)
 **v1.0.0**
-- README.md and ARCHITECTURE.md included with initial skeleton files.
+- Design documentation complete (architecture, agents, harnesses, MCP contract, audit trail, evaluation, decisions). 
 
 **Trust the recommendation because you can trace it, not because you trust the model.**
 
@@ -83,7 +83,7 @@ flowchart TB
 A review begins with a trigger naming the target app — optionally with the alert's description — not a telemetry payload. Because nothing is handed in, the agents pull what they need:
 
 - **Parallel, independent specialists** Three Tier Specialists run concurrently, each pulling data on demand through its own MCP read surface. They share no cross-tier visibility. This strict isolation is exactly what gives the Evaluator's subsequent drift-check its structural integrity.
-- **Three specialists, four tiers**- The Data Layer Analyst handles both database and cache telemetry; compute and network each have their own specialist.
+- **Three specialists, four tiers** The Data Layer Analyst handles both database and cache telemetry; compute and network each have their own specialist.
 - **One cross-tier view** The Cross-Tier Evaluator is the only agent that sees across tiers — by design, so synthesis happens in exactly one place.
 
 
