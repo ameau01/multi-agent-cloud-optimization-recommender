@@ -1,0 +1,26 @@
+{
+  "scenario_id": "08",
+  "finding_type": "issue_found",
+  "specific_change": "Optimize the top 6 slowest SQL queries and add 2 read replicas with read/write splitting. Specifically: (1) Add a composite index (user_id, id) on carts and (cart_id) on cart_items for the carts-by-user query (p95 820ms, 6.05M calls); (2) Add a composite index (warehouse_id, product_id) on inventory for the inventory-warehouse query (p95 680ms, 3.53M calls); (3) Add a composite index (product_id, region, valid_from, valid_to, priority) on pricing for the pricing-lookup query (p95 580ms, 4.03M calls); (4) Add an index (country, is_active, priority) on payment_providers for the payment-provider query (p95 440ms, 1.34M calls); (5) Add a composite index (user_id, created_at DESC) on orders and (order_id) on order_items for the orders-by-user query (p95 510ms, 504K calls); (6) Add an index (order_id, status) on fulfillment for the fulfillment-status query (p95 380ms, 672K calls). Provision 2 read replicas (db.r6g.xlarge) and enable R/W splitting to route all SELECT traffic to replicas. Do NOT scale compute \u2014 the ASG at 8\u00d7 m5.large is correctly sized.",
+  "primary_tier": "database",
+  "secondary_tier": "compute",
+  "action_category": "query_cache_optimization",
+  "conclusion": {
+    "finding_type": "issue_found",
+    "primary_tier": "database",
+    "secondary_tier": "compute",
+    "action_category": "query_cache_optimization",
+    "headline": "Optimize slow queries and add read replicas"
+  },
+  "evidence": {
+    "telemetry_observations": [
+      "Database query latency is well above target during business hours."
+    ],
+    "infrastructure_context": [],
+    "correlation_observations": []
+  },
+  "reasoning": "The cross-tier correlation (r=0.945) conclusively shows that database query latency is the root cause of application latency SLA breaches. Compute resources are healthy (CPU p95 ~72%, memory ~64%), so scaling compute would waste money without addressing the bottleneck. The top 6 queries account for over 16M calls over 14 days with p95 latencies ranging from 380ms to 820ms \u2014 all lacking appropriate composite indexes based on their WHERE/JOIN/ORDER BY patterns. Adding 2 read replicas with R/W splitting will distribute the read-heavy checkout workload (all 6 queries are SELECTs) across 3 nodes instead of 1, while index optimization will reduce per-query execution time dramatically.",
+  "projected_state": null,
+  "cost_impact": null,
+  "risk_assessment": null
+}

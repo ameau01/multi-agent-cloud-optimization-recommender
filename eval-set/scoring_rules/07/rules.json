@@ -1,0 +1,38 @@
+{
+  "description": "Cache hit ratio degraded, cascading to database+compute. The fix involves cache scaling AND warming logic. Both 'query_cache_optimization' (deep) and 'pool_sizing' (surface) framings are defensible.",
+  "finding_type_allowed": [
+    "issue_found"
+  ],
+  "primary_tier_allowed": [
+    "cache"
+  ],
+  "action_category_allowed": [
+    "cache_capacity_adjustment"
+  ],
+  "action_category_rationale": "cache_capacity_adjustment is the canonical cache-tier action (scaling nodes, capacity tuning). Cache warming and key redesign are secondary actions documented in specific_change prose but do not change the primary action category.",
+  "action_keyword_groups": [
+    [
+      "cache",
+      "elasticache",
+      "redis"
+    ],
+    [
+      "scale",
+      "increase",
+      "add nodes",
+      "add cluster",
+      "more nodes"
+    ],
+    [
+      "warming",
+      "warm",
+      "key design",
+      "cache key",
+      "hit ratio"
+    ]
+  ],
+  "action_keyword_min_match": 2,
+  "secondary_tier_allowed": [
+    "database"
+  ]
+}

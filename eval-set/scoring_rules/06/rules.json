@@ -1,0 +1,19 @@
+{
+  "description": "Every tier is healthy. Agent must recognize no action is needed (restraint test). Healthy across all tiers. All fields null.",
+  "finding_type_allowed": [
+    "no_issue_found"
+  ],
+  "primary_tier_allowed": [
+    null
+  ],
+  "action_category_allowed": [
+    null
+  ],
+  "secondary_tier_allowed": [
+    null
+  ],
+  "short_circuit": {
+    "applies": true,
+    "reason": "Mid and Rich are bypassed under the NO_ACTION_FINDINGS rule in src/evaluator/tiers.py. When the gold finding_type is no_issue_found, diagnostic_deferral, or insufficient_data, the right answer is 'no concrete change' and there is no action vocabulary or quantification to verify. Correctness (enum equality on the four decision fields) is sufficient."
+  }
+}
