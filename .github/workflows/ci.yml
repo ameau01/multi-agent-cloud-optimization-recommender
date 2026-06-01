@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  workflow_dispatch:   # ← This makes it run only when you manually trigger it
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run linting (ruff)
+        run: uv run ruff check .
+
+      - name: Run type checking (mypy)
+        run: uv run mypy src
+
+      - name: Run tests
+        run: uv run pytest -q --junitxml=test-results.xml
+
+      - name: Test Summary
+        uses: test-summary/action@v2
+        if: always()
+        with:
+          paths: "test-results.xml"
