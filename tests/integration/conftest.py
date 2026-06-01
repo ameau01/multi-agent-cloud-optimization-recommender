@@ -8,6 +8,9 @@ Hugging Face download.
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import json
 import sys
 from pathlib import Path
@@ -81,15 +84,47 @@ def scenario_08_metadata(vendored_scenario_08_dir: Path) -> dict:
 
 @pytest.fixture(scope="session")
 def mock_predictions(mock_predictions_dir: Path) -> dict[str, dict]:
-    """Load the 4 mock predictions used by edge-case tests.
+    """Load the 5 mock predictions used by edge-case tests.
 
-    Keys: 'good', 'bad_correctness', 'bad_mid', 'bad_rich'.
+    Each mock targets a distinct failure path under the threshold-gating
+    design (see docs/eval-set.md). Keys: 'good', 'bad_correctness',
+    'low_richness', 'mid_richness', 'thin_structure'.
+
+    Each non-good mock carries an `_expected_judge_score` field that the
+    mock_judge fixture below uses to simulate the LLM judge's verdict
+    without an API call.
     """
     out = {}
-    for name in ("good", "bad_correctness", "bad_mid", "bad_rich"):
+    for name in ("good", "bad_correctness", "low_richness",
+                 "mid_richness", "thin_structure"):
         path = mock_predictions_dir / f"scenario_08_{name}.json"
         out[name] = json.loads(path.read_text())
     return out
+
+
+# ============================================================
+# Judge mock fixture (Phase 7 forward-compat)
+# ============================================================
+@pytest.fixture
+def mock_judge():
+    """Return a fake LLM judge callable for Phase 7 tests.
+
+    The fake judge reads the `_expected_judge_score` annotation from the
+    prediction dict and returns it as the score. This lets tests assert
+    threshold-gating behavior without an API call.
+
+    Phase 7 will wire score_mid + score_rich to accept a judge dependency.
+    This fixture matches the planned signature: judge(gold, prediction)
+    returns {'score': int, 'rationale': str}.
+    """
+    def _judge(gold: dict, prediction: dict) -> dict:
+        score = prediction.get("_expected_judge_score", 100)
+        rationale = prediction.get(
+            "_judge_score_rationale",
+            "fake judge: read _expected_judge_score from prediction",
+        )
+        return {"score": score, "rationale": rationale}
+    return _judge
 
 
 # ============================================================

@@ -1,0 +1,36 @@
+{
+  "_expected_judge_score": 75,
+  "_judge_score_rationale": "Specific, well-reasoned prose: names six concrete queries, names tables, specifies index columns, replica count, instance class, and the explicit 'do not scale compute' guidance. Would score high on the judge. But the supporting evidence field is too sparse for Rich's structural check.",
+  "scenario_id": "08",
+  "finding_type": "issue_found",
+  "primary_tier": "database",
+  "secondary_tier": "compute",
+  "action_category": "query_cache_optimization",
+  "conclusion": {
+    "finding_type": "issue_found",
+    "primary_tier": "database",
+    "secondary_tier": "compute",
+    "action_category": "query_cache_optimization",
+    "headline": "Fix database to resolve cascading latency"
+  },
+  "specific_change": "Optimize the top 6 slowest SQL queries (carts-by-user, inventory-warehouse, pricing-lookup, payment-provider, orders-by-user, fulfillment-status) by adding composite indexes on (user_id, id) for carts and (cart_id) for cart_items. Provision 2 read replicas (db.r6g.xlarge) with read/write splitting. Do not scale compute; the bottleneck is downstream in the database, not in the application tier.",
+  "evidence": {
+    "telemetry_observations": [
+      "Database query p95 latency reaches 820ms during business hours."
+    ],
+    "infrastructure_context": [],
+    "correlation_observations": []
+  },
+  "cost_impact": {
+    "current_monthly_usd": 6400.0,
+    "projected_monthly_usd": 8800.0,
+    "savings_monthly_usd": -2400.0,
+    "savings_pct": -37.5,
+    "notes": "Two replicas add ~$2,400/mo; resolves SLA breach."
+  },
+  "projected_state": {
+    "latency_p95_ms_estimate": "180-240",
+    "sla_availability_preserved": true,
+    "notes": "Expected after query optimization and replica addition."
+  }
+}

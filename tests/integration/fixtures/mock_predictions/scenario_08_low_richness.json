@@ -1,0 +1,35 @@
+{
+  "_expected_judge_score": 15,
+  "_judge_score_rationale": "Correct enums but prose is generic, uses vague synonyms ('storage backend', 'backend nodes', 'worker pool') instead of specifics, and lacks any concrete plan. Mimicry without substance.",
+  "scenario_id": "08",
+  "finding_type": "issue_found",
+  "primary_tier": "database",
+  "secondary_tier": "compute",
+  "action_category": "query_cache_optimization",
+  "conclusion": {
+    "finding_type": "issue_found",
+    "primary_tier": "database",
+    "secondary_tier": "compute",
+    "action_category": "query_cache_optimization",
+    "headline": "Fix database to resolve cascading latency"
+  },
+  "specific_change": "Improve the storage backend by reorganizing how it stores rows internally and adjusting its capacity profile. Consider parallelizing the heavy reads by adding more backend nodes. Tune the worker pool to match the change. Roll the change in stages and monitor for regressions over a week.",
+  "evidence": {
+    "telemetry_observations": [
+      "Application latency is elevated during business hours."
+    ],
+    "infrastructure_context": [],
+    "correlation_observations": []
+  },
+  "cost_impact": {
+    "current_monthly_usd": 6400.0,
+    "projected_monthly_usd": 8800.0,
+    "savings_monthly_usd": -2400.0,
+    "savings_pct": -37.5,
+    "notes": "Adding nodes increases monthly cost."
+  },
+  "projected_state": {
+    "latency_p95_ms_estimate": "180-240",
+    "notes": "Should improve after the change."
+  }
+}

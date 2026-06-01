@@ -1,0 +1,41 @@
+{
+  "_expected_judge_score": 45,
+  "_judge_score_rationale": "Correct enums and on-target tier mentions (database, compute, queries, read replicas). Direction is right. But no specific table names, no query identifiers, no replica counts, no quantified projections in the prose.",
+  "scenario_id": "08",
+  "finding_type": "issue_found",
+  "primary_tier": "database",
+  "secondary_tier": "compute",
+  "action_category": "query_cache_optimization",
+  "conclusion": {
+    "finding_type": "issue_found",
+    "primary_tier": "database",
+    "secondary_tier": "compute",
+    "action_category": "query_cache_optimization",
+    "headline": "Fix database to resolve cascading latency"
+  },
+  "specific_change": "Address the database query latency by optimizing the slow queries and adding read replicas to handle the load. The compute tier is healthy; the bottleneck is on the database side and cascades downstream into application latency. Monitor the application latency after the change.",
+  "evidence": {
+    "telemetry_observations": [
+      "Database query p95 latency is elevated during business hours.",
+      "Application p95 latency is above the SLA target."
+    ],
+    "infrastructure_context": [
+      "Database is a single primary with no read replicas configured."
+    ],
+    "correlation_observations": [
+      "Database query latency correlates strongly with application latency."
+    ]
+  },
+  "cost_impact": {
+    "current_monthly_usd": 6400.0,
+    "projected_monthly_usd": 8800.0,
+    "savings_monthly_usd": -2400.0,
+    "savings_pct": -37.5,
+    "notes": "Replica capacity increases cost but resolves SLA breach."
+  },
+  "projected_state": {
+    "latency_p95_ms_estimate": "180-240",
+    "sla_availability_preserved": true,
+    "notes": "Expected after query optimization and replica addition."
+  }
+}

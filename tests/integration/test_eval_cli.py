@@ -14,6 +14,7 @@ Run:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -98,28 +99,34 @@ class TestCliInvocation:
 # ============================================================
 class TestGoldAnswerAllPass:
     def test_app_08_gold_passes_all_layers(self):
+        """app-08's gold should produce exit 0. With API key set, all
+        four layers pass and stdout says 'All layers passed.' Without
+        the key, Shape + Correctness pass and Mid + Rich gracefully
+        skip; exit code is still 0 because no layer that ran failed."""
         gold_path = PROJECT_ROOT / "eval-set/expectations/08.json"
         result = _run_eval([
             "--app-name", "app-08",
             "--prediction", str(gold_path),
+            "--no-judge",  # force deterministic-only for reproducibility
         ])
         assert result.returncode == 0, (
             f"Expected exit 0, got {result.returncode}\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
-        assert "All layers passed." in result.stdout
+        assert "Shape and Correctness passed" in result.stdout
         assert "app-08" in result.stdout
 
     def test_app_06_gold_passes_with_short_circuit(self):
-        """app-06 is no_issue_found; Mid + Rich short-circuit but Shape
-        and Correctness should still pass."""
+        """app-06 is no_issue_found; Mid + Rich short-circuit (the
+        scenario's own short_circuit rule, independent of judge
+        availability). Shape and Correctness still pass."""
         gold_path = PROJECT_ROOT / "eval-set/expectations/06.json"
         result = _run_eval([
             "--app-name", "app-06",
             "--prediction", str(gold_path),
+            "--no-judge",
         ])
         assert result.returncode == 0
-        assert "All layers passed." in result.stdout
 
 
 # ============================================================
@@ -138,20 +145,50 @@ class TestDiscrimination:
         assert result.returncode == 1
         assert "Correctness gate failed" in result.stdout
 
-    def test_bad_mid_mock_fails_at_mid_layer(self, mocks_dir):
+    def test_low_richness_mock_fails_after_correctness(self, mocks_dir):
+        """Low-richness mock: correct enums, generic prose, thin evidence.
+        With the judge configured, Mid + Rich both fail on score < 30.
+
+        Skipped if the CLI subprocess could not actually invoke the judge
+        (no API key, or SDK construction failed at runtime). The skip is
+        detected by parsing the CLI's stdout header rather than checking
+        env vars, because pytest plugins (langsmith) may auto-load .env
+        and pollute os.environ even when the SDK call itself fails."""
         result = _run_eval([
             "--app-name", "app-08",
-            "--prediction", str(mocks_dir / "scenario_08_bad_mid.json"),
+            "--prediction", str(mocks_dir / "scenario_08_low_richness.json"),
         ])
+        if "with LLM judge" not in result.stdout:
+            pytest.skip("CLI fell back to deterministic mode; judge unavailable")
         assert result.returncode == 1
         assert "Correctness gate failed" not in result.stdout
         assert "correct but thin" in result.stdout
 
-    def test_bad_rich_mock_fails_at_rich_layer(self, mocks_dir):
+    def test_mid_richness_mock_fails_at_rich_layer(self, mocks_dir):
+        """Mid-richness mock: correct enums, shallow-but-on-target prose,
+        complete supporting fields. With the judge, Mid passes (score ~45
+        >= 30) but Rich fails on the judge gate (45 < 60). Without the
+        judge, no failure can be detected (skipped)."""
         result = _run_eval([
             "--app-name", "app-08",
-            "--prediction", str(mocks_dir / "scenario_08_bad_rich.json"),
+            "--prediction", str(mocks_dir / "scenario_08_mid_richness.json"),
         ])
+        if "with LLM judge" not in result.stdout:
+            pytest.skip("CLI fell back to deterministic mode; judge unavailable")
+        assert result.returncode == 1
+        assert "correct but thin" in result.stdout
+
+    def test_thin_structure_mock_fails_at_rich_layer(self, mocks_dir):
+        """Thin-structure mock: correct enums, rich prose, sparse evidence.
+        With the judge configured, Mid + judge-gate pass but the
+        deterministic evidence check fails. Without the judge, Rich is
+        '(skipped)' so the failure can't be reported through Rich."""
+        result = _run_eval([
+            "--app-name", "app-08",
+            "--prediction", str(mocks_dir / "scenario_08_thin_structure.json"),
+        ])
+        if "with LLM judge" not in result.stdout:
+            pytest.skip("CLI fell back to deterministic mode; judge unavailable")
         assert result.returncode == 1
         assert "correct but thin" in result.stdout
 
