@@ -1,0 +1,228 @@
+{
+  "_note": "Sample audit trail for scenario 02. Single-tier compute scenario: only Compute Analyst is invoked because no other tiers are present in the topology. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
+
+  "_what_is_real": [
+    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.py)",
+    "Tool-call action signatures: summary_statistics(...), get_time_pattern(...), get_infrastructure_context(...), these match the Reasoning Harness's read contract",
+    "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
+    "Single-specialist invocation pattern: System Mapper detects only the compute tier present in tier_topology, so Supervisor invokes only Compute Analyst",
+    "Specialist finding type and evidence_refs list: structurally identical to what the real specialist will produce",
+    "Cross-tier interactions empty: correlation_evidence.json is empty for scenario 02 because no other tier is present to correlate against"
+  ],
+
+  "_what_is_illustrative": [
+    "Timestamps: triggered_at, completed_at, placeholder values for a review that has not occurred",
+    "Durations: wall_clock_seconds, duration_ms per step, plausible estimates, not measurements",
+    "bundle_hash: 'sha256:c4f2a9...e7', fabricated",
+    "review_id: 'rev_b7c3d4e1', fabricated",
+    "Specific p50/p90/p95 observation numbers in each react_step, derived from gold-answer reasoning, not from a real summary_statistics tool call",
+    "Drift-check verdict ('tight'): what the architecture commits to producing, not what was measured by a live evaluator",
+    "Action Harness checks (all 'pass'): same; architectural commitment, not measurement"
+  ],
+
+  "_what_is_verifiable_today": [
+    "Run: python scripts/verify_trace.py",
+    "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
+    "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
+  ],
+
+
+  "review": {
+    "review_id": "rev_b7c3d4e1",
+    "scenario_id": "02",
+    "trigger": {
+      "trigger_type": "on_demand",
+      "triggered_at": "2026-05-29T15:30:00Z",
+      "triggered_by": "alex.meau"
+    },
+    "input_bundle": {
+      "bundle_hash": "sha256:c4f2a9...e7",
+      "input_files": [
+        "metadata.json",
+        "main.tf",
+        "compute_telemetry.json",
+        "database_telemetry.json",
+        "cache_telemetry.json",
+        "network_telemetry.json",
+        "correlation_evidence.json"
+      ]
+    },
+    "outcome": "issue_found",
+    "completed_at": "2026-05-29T15:30:31Z",
+    "wall_clock_seconds": 31
+  },
+
+  "input_harness_validation": {
+    "step_id": "ih_001",
+    "bundle_well_formed": true,
+    "schema_conformance": "all tiers conform",
+    "record_completeness": "1344 records per tier",
+    "timestamp_continuity": "monotonic, 15min spacing, no gaps",
+    "cross_tier_alignment": "index-aligned across tier arrays",
+    "terraform_parseable": true,
+    "verdict": "pass"
+  },
+
+  "system_mapper": {
+    "step_id": "sm_001",
+    "input": "Terraform main.tf",
+    "output": {
+      "tiers_present": ["compute"],
+      "tiers_relevant": ["compute"],
+      "dependency_graph": {
+        "compute": "aws_instance.app (6 instances, no ASG)"
+      },
+      "analysis_plan": {
+        "specialists_to_invoke": [
+          "compute_analyst"
+        ],
+        "cross_tier_pairs": [],
+        "rationale": "Single-tier topology. No database, cache, or network tier in Terraform. No cross-tier reasoning needed."
+      }
+    },
+    "duration_ms": 320
+  },
+
+  "supervisor_decision": {
+    "step_id": "sup_001",
+    "input": "analysis_plan from system_mapper",
+    "output": {
+      "specialists_invoked": [
+        "compute_analyst"
+      ],
+      "invocation_mode": "single"
+    },
+    "duration_ms": 40
+  },
+
+  "specialist_findings": [
+    {
+      "step_id": "spc_comp_001",
+      "specialist": "compute_analyst",
+      "react_steps": [
+        {
+          "step_id": "rs_comp_001",
+          "thought": "Is CPU utilization elevated and how stable is the distribution?",
+          "action": "summary_statistics(tier='compute', metric='cpu_p95')",
+          "observation_id": "obs_comp_001",
+          "observation": {
+            "p50": 33.9,
+            "p90": 78.0,
+            "p95": 91.2,
+            "mean": 38.0,
+            "windowed_max": 95.9,
+            "stddev": 14.1
+          }
+        },
+        {
+          "step_id": "rs_comp_002",
+          "thought": "High p95 with high variance. Is the spike pattern time-aligned?",
+          "action": "get_time_pattern(tier='compute', metric='cpu_p95')",
+          "observation_id": "obs_comp_002",
+          "observation": {
+            "baseline_cpu_p95": 34,
+            "peak_windows": [
+              {"day_of_week": "weekday", "window_utc": "09:45-11:15", "cpu_p95": 91, "occurrences": 11},
+              {"day_of_week": "weekday", "window_utc": "14:45-16:15", "cpu_p95": 89, "occurrences": 11}
+            ],
+            "pattern": "predictable_daily_spikes"
+          }
+        },
+        {
+          "step_id": "rs_comp_003",
+          "thought": "Spikes are predictable. Is application latency breaching SLA during these windows?",
+          "action": "summary_statistics(tier='compute', metric='application_p95_latency_ms')",
+          "observation_id": "obs_comp_003",
+          "observation": {
+            "p50": 194.8,
+            "p90": 380.0,
+            "p95": 487.5,
+            "mean": 230.0,
+            "windowed_max": 572.4,
+            "sla_threshold_ms": 300
+          }
+        },
+        {
+          "step_id": "rs_comp_004",
+          "thought": "SLA breached. Is the fleet auto-scaling, or fixed?",
+          "action": "get_infrastructure_context(resource='compute')",
+          "observation_id": "obs_comp_004",
+          "observation": {
+            "fleet": "6 x m5.large",
+            "scaling_policy": "none",
+            "terraform_resource": "aws_instance",
+            "asg_present": false,
+            "monthly_cost_usd": 5200
+          }
+        }
+      ],
+      "finding": {
+        "finding_type": "issue_found",
+        "primary_observation": "Fixed 6-instance fleet, no ASG. CPU spikes to 96% in two predictable daily weekday windows (09:45-11:15 and 14:45-16:15 UTC); p95 latency reaches 572ms versus the 300ms SLA target.",
+        "evidence_refs": ["obs_comp_001", "obs_comp_002", "obs_comp_003", "obs_comp_004"],
+        "confidence": "high"
+      },
+      "duration_ms": 9800
+    }
+  ],
+
+  "evaluator_records": {
+    "step_id": "eval_001",
+    "drift_check": [
+      {
+        "specialist": "compute_analyst",
+        "target_finding_id": "spc_comp_001",
+        "verdict": "tight",
+        "rationale": "Evidence chain resolves cleanly to obs_comp_001 through obs_comp_004. The pattern observation (obs_comp_002) directly supports the recommendation for scheduled scaling rather than reactive scaling."
+      }
+    ],
+    "cross_tier_interactions": [],
+    "synthesis": {
+      "synthesis_id": "syn_001",
+      "contributing_findings": ["spc_comp_001"],
+      "finding_type": "issue_found",
+      "primary_tier": "compute",
+      "secondary_tier": null,
+      "action_category": "scaling_policy_change",
+      "trade_off_scores": {
+        "cost": "savings of ~$2,496/month (48% reduction; blended 3.7 average instances vs current 6)",
+        "performance": "p95 latency from 572ms peak to 200-280ms estimated; peak CPU from 96% to 65%",
+        "reliability": "SLA target (p95 < 300ms) restored during spike windows",
+        "risk": "low to moderate (spike timing may shift; target-tracking safety net mitigates)"
+      },
+      "evidence_refs": ["obs_comp_001", "obs_comp_002", "obs_comp_003", "obs_comp_004"],
+      "evaluator_confidence": "high"
+    },
+    "duration_ms": 6800
+  },
+
+  "action_harness_gate": {
+    "step_id": "ah_001",
+    "gate_id": "ah_001",
+    "evaluator_id": "eval_001",
+    "synthesis_id": "syn_001",
+    "checks": [
+      {"check": "well_formedness", "verdict": "pass"},
+      {"check": "evidence_completeness", "verdict": "pass", "verified_refs": ["obs_comp_001", "obs_comp_002", "obs_comp_003", "obs_comp_004"]},
+      {"check": "severity_calibration", "verdict": "pass"},
+      {"check": "duplication_against_recent_reviews", "verdict": "pass"}
+    ],
+    "verdict": "pass",
+    "duration_ms": 180
+  },
+
+  "review_packet": {
+    "packet_id": "pkt_b7c3d4e1_01",
+    "gate_id": "ah_001",
+    "synthesis_id": "syn_001",
+    "review_id": "rev_b7c3d4e1",
+    "rendered_at": "2026-05-29T15:30:31Z",
+    "rendered_to": "sample_runs/reports/scenario_02_report.md",
+    "evidence_chain_length": 6,
+    "audit_walk_starting_point": "review.review_id = rev_b7c3d4e1"
+  },
+
+  "hitl_decision": {
+    "_note": "HITL state is filled in after a human reviewer takes action. Empty here because the system just produced the report."
+  }
+}

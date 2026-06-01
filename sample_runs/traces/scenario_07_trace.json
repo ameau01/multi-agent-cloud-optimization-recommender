@@ -1,0 +1,339 @@
+{
+  "_note": "Sample audit trail for scenario 07. Cross-tier scenario: cache memory pressure cascades into database load and application latency. The Data Layer Analyst covers both cache and database (per docs/agents.md), so the cross-tier signal appears within a single specialist's findings as well as in the Evaluator's cross_tier_interactions block. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
+
+  "_what_is_real": [
+    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.py)",
+    "Tool-call action signatures: summary_statistics(...), get_top_cache_keys(...), get_infrastructure_context(...), these match the Reasoning Harness's read contract",
+    "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
+    "Cross-tier correlation values: r=-0.961, r=-0.963, r=0.924, all zero-lag, pulled from correlation_evidence.json in the published dataset",
+    "Top cache-key miss counts: rec:user:* (3.1M miss), rec:trending:* (1.9M miss), rec:similar:* (1.7M miss), pulled from scenario_specific_evidence.top_cache_keys",
+    "Specialist finding types and evidence_refs lists: structurally identical to what the real specialists will produce",
+    "Specialist scoping: Data Layer Analyst covers cache and database together per docs/agents.md, so cache and DB observations share one finding record"
+  ],
+
+  "_what_is_illustrative": [
+    "Timestamps: triggered_at, completed_at, placeholder values for a review that has not occurred",
+    "Durations: wall_clock_seconds, duration_ms per step, plausible estimates, not measurements",
+    "bundle_hash: 'sha256:f1a8b3...c4', fabricated",
+    "review_id: 'rev_c8d4e5f2', fabricated",
+    "Specific p50/p90/p95 observation numbers in each react_step, derived from gold-answer reasoning, not from a real summary_statistics tool call",
+    "Drift-check verdicts (all 'tight'): what the architecture commits to producing, not what was measured by a live evaluator",
+    "Action Harness checks (all 'pass'): same; architectural commitment, not measurement"
+  ],
+
+  "_what_is_verifiable_today": [
+    "Run: python scripts/verify_trace.py",
+    "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
+    "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
+  ],
+
+
+  "review": {
+    "review_id": "rev_c8d4e5f2",
+    "scenario_id": "07",
+    "trigger": {
+      "trigger_type": "on_demand",
+      "triggered_at": "2026-05-29T16:15:00Z",
+      "triggered_by": "alex.meau"
+    },
+    "input_bundle": {
+      "bundle_hash": "sha256:f1a8b3...c4",
+      "input_files": [
+        "metadata.json",
+        "main.tf",
+        "compute_telemetry.json",
+        "database_telemetry.json",
+        "cache_telemetry.json",
+        "network_telemetry.json",
+        "correlation_evidence.json"
+      ]
+    },
+    "outcome": "issue_found",
+    "completed_at": "2026-05-29T16:15:52Z",
+    "wall_clock_seconds": 52
+  },
+
+  "input_harness_validation": {
+    "step_id": "ih_001",
+    "bundle_well_formed": true,
+    "schema_conformance": "all tiers conform",
+    "record_completeness": "1344 records per tier",
+    "timestamp_continuity": "monotonic, 15min spacing, no gaps",
+    "cross_tier_alignment": "index-aligned across tier arrays",
+    "terraform_parseable": true,
+    "verdict": "pass"
+  },
+
+  "system_mapper": {
+    "step_id": "sm_001",
+    "input": "Terraform main.tf",
+    "output": {
+      "tiers_present": ["compute", "database", "cache"],
+      "tiers_relevant": ["compute", "database", "cache"],
+      "dependency_graph": {
+        "compute_to_cache": "aws_instance.app -> aws_elasticache_cluster.recs",
+        "compute_to_database": "aws_instance.app -> aws_db_instance.primary",
+        "cache_to_database": "miss-overflow path (logical, not declared in Terraform)"
+      },
+      "analysis_plan": {
+        "specialists_to_invoke": [
+          "compute_analyst",
+          "data_layer_analyst"
+        ],
+        "cross_tier_pairs": [
+          ["cache", "database"],
+          ["cache", "compute"]
+        ],
+        "rationale": "No network tier in Terraform; Network Analyst skipped. Data Layer Analyst handles both cache and database tiers."
+      }
+    },
+    "duration_ms": 510
+  },
+
+  "supervisor_decision": {
+    "step_id": "sup_001",
+    "input": "analysis_plan from system_mapper",
+    "output": {
+      "specialists_invoked": [
+        "compute_analyst",
+        "data_layer_analyst"
+      ],
+      "invocation_mode": "parallel"
+    },
+    "duration_ms": 70
+  },
+
+  "specialist_findings": [
+    {
+      "step_id": "spc_data_001",
+      "specialist": "data_layer_analyst",
+      "react_steps": [
+        {
+          "step_id": "rs_data_001",
+          "thought": "Is the cache hit ratio in the healthy band?",
+          "action": "summary_statistics(tier='cache', metric='cache_hit_ratio')",
+          "observation_id": "obs_data_001",
+          "observation": {
+            "p50": 0.70,
+            "p90": 0.62,
+            "p95": 0.58,
+            "mean": 0.669,
+            "healthy_band_min": 0.89
+          }
+        },
+        {
+          "step_id": "rs_data_002",
+          "thought": "Hit ratio is well below the 0.89 band. Is cache memory under pressure?",
+          "action": "summary_statistics(tier='cache', metric='cache_memory_utilization_pct')",
+          "observation_id": "obs_data_002",
+          "observation": {
+            "p50": 88.5,
+            "p95": 94.6,
+            "max": 95.2,
+            "mean": 89.1
+          }
+        },
+        {
+          "step_id": "rs_data_003",
+          "thought": "Memory saturated. Are evictions elevated?",
+          "action": "summary_statistics(tier='cache', metric='cache_evictions_per_sec')",
+          "observation_id": "obs_data_003",
+          "observation": {
+            "p50": 90,
+            "p95": 180,
+            "max": 220,
+            "mean": 105
+          }
+        },
+        {
+          "step_id": "rs_data_004",
+          "thought": "Heavy evictions. Which key patterns are missing most?",
+          "action": "get_top_cache_keys(scenario_id='07', limit=10)",
+          "observation_id": "obs_data_004",
+          "observation": {
+            "top_patterns": [
+              {"key_pattern": "rec:user:*", "hit_count": 8200000, "miss_count": 3100000, "miss_rate": 0.274},
+              {"key_pattern": "rec:trending:*", "hit_count": 4400000, "miss_count": 1900000, "miss_rate": 0.302},
+              {"key_pattern": "rec:similar:*", "hit_count": 2800000, "miss_count": 1700000, "miss_rate": 0.378}
+            ],
+            "top_3_total_miss": 6700000,
+            "total_accesses_per_tier": 22100000
+          }
+        },
+        {
+          "step_id": "rs_data_005",
+          "thought": "Top three patterns account for the bulk of misses. Cache misses likely overflow to the database. Is DB query latency elevated?",
+          "action": "summary_statistics(tier='database', metric='db_query_p95_latency_ms')",
+          "observation_id": "obs_data_005",
+          "observation": {
+            "p50": 145.0,
+            "p90": 285.0,
+            "p95": 316.0,
+            "mean": 178.0,
+            "windowed_max": 380.0,
+            "healthy_band_max": 200
+          }
+        },
+        {
+          "step_id": "rs_data_006",
+          "thought": "Elevated. Is the DB itself the bottleneck, or is it absorbing overflow?",
+          "action": "summary_statistics(tier='database', metric='db_cpu_p95')",
+          "observation_id": "obs_data_006",
+          "observation": {
+            "p50": 35.0,
+            "p95": 58.0,
+            "max": 65.0,
+            "mean": 40.0
+          }
+        }
+      ],
+      "finding": {
+        "finding_type": "issue_found",
+        "primary_observation": "Cache is memory-saturated at 94.6% with evictions reaching 180/sec, hit ratio at 0.669 versus the 0.89 band. Top three key patterns (rec:user:*, rec:trending:*, rec:similar:*) account for 6.7M of ~22.1M total accesses. DB query p95 elevated to 316ms is a downstream symptom of cache-miss overflow; DB CPU stays healthy at 58% p95.",
+        "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_data_004", "obs_data_005", "obs_data_006"],
+        "confidence": "high"
+      },
+      "duration_ms": 12400
+    },
+    {
+      "step_id": "spc_comp_001",
+      "specialist": "compute_analyst",
+      "react_steps": [
+        {
+          "step_id": "rs_comp_001",
+          "thought": "Is compute capacity the bottleneck?",
+          "action": "summary_statistics(tier='compute', metric='cpu_p95')",
+          "observation_id": "obs_comp_001",
+          "observation": {
+            "p50": 52.0,
+            "p90": 65.0,
+            "p95": 70.0,
+            "mean": 48.0,
+            "healthy_band_max": 80
+          }
+        },
+        {
+          "step_id": "rs_comp_002",
+          "thought": "CPU healthy. Is application latency rising in the same windows as cache misses?",
+          "action": "summary_statistics(tier='compute', metric='application_p95_latency_ms')",
+          "observation_id": "obs_comp_002",
+          "observation": {
+            "p50": 320.0,
+            "p90": 420.0,
+            "p95": 458.0,
+            "mean": 340.0,
+            "windowed_max": 510.0,
+            "sla_threshold_ms": 300
+          }
+        }
+      ],
+      "finding": {
+        "finding_type": "no_issue_found",
+        "primary_observation": "CPU stable at 70% p95 within the healthy band. Application latency is elevated but tracks the cache-miss / DB-latency pattern, not compute load. Scaling compute would not address the root cause.",
+        "evidence_refs": ["obs_comp_001", "obs_comp_002"],
+        "confidence": "high"
+      },
+      "duration_ms": 5100
+    }
+  ],
+
+  "evaluator_records": {
+    "step_id": "eval_001",
+    "drift_check": [
+      {
+        "specialist": "data_layer_analyst",
+        "target_finding_id": "spc_data_001",
+        "verdict": "tight",
+        "rationale": "Evidence chain resolves cleanly across cache and database observations. The conclusion that cache is the root cause is supported by obs_data_001 through obs_data_004 (cache pressure) plus obs_data_006 (DB CPU healthy, so DB is absorbing, not bottlenecking)."
+      },
+      {
+        "specialist": "compute_analyst",
+        "target_finding_id": "spc_comp_001",
+        "verdict": "tight",
+        "rationale": "Evidence chain resolves cleanly to obs_comp_001, obs_comp_002. No-issue conclusion is justified by stable CPU within the healthy band."
+      }
+    ],
+    "cross_tier_interactions": [
+      {
+        "interaction_id": "xt_001",
+        "tiers": ["cache", "database"],
+        "interaction_type": "miss_overflow_cascade",
+        "correlation_source": "correlation_evidence.json",
+        "correlation_index": 0,
+        "coefficient": -0.961,
+        "lag_minutes": 0,
+        "alignment_score": 0.021,
+        "interpretation": "Cache hit ratio and database query latency move in lockstep (zero-lag inverse). When cache misses spike, DB query latency spikes within the same observation window."
+      },
+      {
+        "interaction_id": "xt_002",
+        "tiers": ["cache", "compute"],
+        "interaction_type": "miss_overflow_cascade",
+        "correlation_source": "correlation_evidence.json",
+        "correlation_index": 1,
+        "coefficient": -0.963,
+        "lag_minutes": 0,
+        "alignment_score": 0.021,
+        "interpretation": "Cache hit ratio and application latency move in lockstep (zero-lag inverse). Cache misses directly drive the application-latency SLA breach."
+      },
+      {
+        "interaction_id": "xt_003",
+        "tiers": ["cache", "database"],
+        "interaction_type": "downstream_buffer_pressure",
+        "correlation_source": "correlation_evidence.json",
+        "correlation_index": 2,
+        "coefficient": 0.924,
+        "lag_minutes": 0,
+        "alignment_score": 0.021,
+        "interpretation": "Cache hit ratio and DB cache hit ratio move together. Cache misses force more reads through to the DB, which then strains the DB's own buffer pool."
+      }
+    ],
+    "synthesis": {
+      "synthesis_id": "syn_001",
+      "contributing_findings": ["spc_data_001", "spc_comp_001"],
+      "finding_type": "issue_found",
+      "primary_tier": "cache",
+      "secondary_tier": "database",
+      "action_category": "cache_capacity_adjustment",
+      "trade_off_scores": {
+        "cost": "increase of ~$700/month (cache tier doubles from $700 to $1,400)",
+        "performance": "p95 latency from 458ms back to 200-260ms estimated; hit ratio from 0.65 to 0.91",
+        "reliability": "SLA target (p95 < 300ms) restored; DB query p95 expected to drop ~38%",
+        "risk": "moderate (hot-shard imbalance if key cardinality is skewed; mitigated by deploying key redesign with node expansion)"
+      },
+      "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_data_004", "obs_data_005", "obs_data_006", "xt_001", "xt_002", "xt_003"],
+      "evaluator_confidence": "high"
+    },
+    "duration_ms": 18900
+  },
+
+  "action_harness_gate": {
+    "step_id": "ah_001",
+    "gate_id": "ah_001",
+    "evaluator_id": "eval_001",
+    "synthesis_id": "syn_001",
+    "checks": [
+      {"check": "well_formedness", "verdict": "pass"},
+      {"check": "evidence_completeness", "verdict": "pass", "verified_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_data_004", "obs_data_005", "obs_data_006", "obs_comp_001", "obs_comp_002", "xt_001", "xt_002", "xt_003"]},
+      {"check": "severity_calibration", "verdict": "pass"},
+      {"check": "duplication_against_recent_reviews", "verdict": "pass"}
+    ],
+    "verdict": "pass",
+    "duration_ms": 260
+  },
+
+  "review_packet": {
+    "packet_id": "pkt_c8d4e5f2_01",
+    "gate_id": "ah_001",
+    "synthesis_id": "syn_001",
+    "review_id": "rev_c8d4e5f2",
+    "rendered_at": "2026-05-29T16:15:52Z",
+    "rendered_to": "sample_runs/reports/scenario_07_report.md",
+    "evidence_chain_length": 13,
+    "audit_walk_starting_point": "review.review_id = rev_c8d4e5f2"
+  },
+
+  "hitl_decision": {
+    "_note": "HITL state is filled in after a human reviewer takes action. Empty here because the system just produced the report."
+  }
+}

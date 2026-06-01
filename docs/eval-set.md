@@ -1,187 +1,172 @@
-# Evaluation
+# Evaluation: proving the architecture
 
-The system is evaluated against the 18-scenario dataset published at [`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations). This doc defines what "the system passes" means. It also defines how agent output is scored against the hand-crafted recommendation each scenario carries.
+The industry is saturated with multi-agent systems that a single LLM prompt could have solved. This evaluation exists to prove, using a falsifiable baseline comparison rather than assertions, that this project is not one of them.
 
-Without an evaluation methodology, the demo has no objective success criterion. Specifying one is part of what makes this a portfolio project.
+The system is scored against an 18-scenario synthetic dataset ([`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations)), each scenario carrying one hand-crafted gold recommendation. Every agent output is graded through four layers: two deterministic, two LLM-judged. The split is deliberate, and the reasoning behind it is the most important thing in this document.
 
-## Two evaluation layers
+> **Implementation status.** Shape and Correctness are implemented in `src/evaluator/`. Mid and Rich currently run a deterministic placeholder (keyword matching for Mid, non-zero quantification for Rich) that gives a working CI signal. The auditable LLM judge described in this document is the Phase 7 design, not yet built. The closing line of this doc repeats this caveat next to the run commands.
 
-There are two evaluation systems. They operate in different layers and should stay independent.
+## Two modes, one principle
 
-| Layer            | What it evaluates                                                               | Where it lives                         |
-| ---------------- | ------------------------------------------------------------------------------- | -------------------------------------- |
-| Dataset QA       | Whether the synthetic dataset itself is well-formed                             | Dataset generation pipeline (separate) |
-| Agent evaluation | Whether the agent's recommendation matches the hand-crafted target in substance | This project, under `src/evaluator/`   |
+A cloud-optimization recommendation is natural language. It does not fit a rigid schema, and its quality cannot be captured by string rules. But the *decision underneath* it — which tier, which action category, issue or no issue — is enumerable. The evaluator grades each part with the tool that fits it:
 
-Dataset QA validated the inputs once. That work is done. Agent evaluation validates the outputs. This doc covers the agent side.
+- **The decision is objective, so it is graded deterministically.** Shape and Correctness are pure-Python checks. Same prediction plus same rules equals the same verdict, on any machine, with no API key. This is the reproducible spine.
+- **The prose is opinionated, so it is graded by an LLM judge.** The one field that genuinely requires semantic understanding is `specific_change`, the prose recommendation. The judge scores that field; rules check everything else. Mid and Rich pass or fail based on the judge's score and on the structural completeness of the prediction's supporting fields.
 
-## The three-tier evaluator
+This split is the production-honest position. A purely deterministic scorer for free-form recommendations would be a treadmill of keyword patches that still could not tell "scale from 4 to 8" apart from "scale from 8 to 4." A purely LLM-judged scorer would make even the objective decision non-reproducible and invite the obvious circularity (an LLM grading an LLM). Splitting on the objective/opinionated line avoids both.
 
-For each scenario, the agent produces a review packet with a recommendation. The evaluator scores that recommendation across three tiers. Each tier groups related checks.
+**The non-override invariant.** The LLM judge can flag, annotate, and guide, but it can never change a Shape or Correctness verdict. If a recommendation passes Correctness but the judge scores its prose poorly, that disagreement is surfaced, not resolved by override: it tells the human reviewer where to look, and it tells the system's author that the Correctness rule for that scenario may be too coarse and worth refining. The divergence is a signal, not a conflict.
 
-### Floor: structure and category
+## Why this design (the path here)
 
-Floor confirms the prediction is shaped like an optimization recommendation. It does not score quality.
+The two-mode split was not the first attempt. It is where two failed attempts led.
 
-Checks:
+- **Attempt 1: strict structured output.** The agent was asked to emit a rigid recommendation that an AWS environment could consume directly. Real recommendations vary too much; the model could not reliably fit high-variance advice into a fixed schema. Conclusion: the output is inherently natural language.
+- **Attempt 2: fully deterministic scoring.** With NLP output, Correctness could be enumerated, but quality was scored by keyword groups. That became a brittle rule-maintenance problem — every new phrasing the model produced needed another keyword or enum, and direction and magnitude still slipped through. Conclusion: rules cannot grade rich NLP.
+- **Attempt 3 (current): split the modes.** Deterministic checks for the enumerable decision spine; an audited LLM judge for the one semantically rich field; the judge informs the human-in-the-loop but never overturns the objective layers.
 
-- `finding_type` is one of the values the scenario allows.
-- `primary_tier` is one of the allowed tier names.
-- `action_category` is one of the allowed values.
-- `specific_change` is a non-empty string of at least 20 characters.
+Documenting the path matters because it shows the disciplined approaches were tried first and abandoned for concrete reasons, not skipped.
 
-A reasonable agent passes Floor 18 out of 18.
+## The architectural justification
 
-### Mid: depth
+The evaluator is calibrated to separate careless single-shot models from deep, orchestrated synthesis. These numbers are projections, not measurements; real baseline runs will publish in `baselines.md` once they execute. Shape and Correctness are reproducible; Mid and Rich are judge-scored and therefore judge-dependent, so their counts are expected ranges rather than exact figures.
 
-Mid confirms the recommendation engages with the right evidence.
+| Baseline | Shape (18) | Correctness (18) | Mid (cond.) | Rich (cond.) |
+| :--- | :--- | :--- | :--- | :--- |
+| Trivial (returns one canned answer) | 18 | 1 | 0 or 1 | 0 or 1 |
+| Random (picks allowed values randomly) | 18 | 3 to 5 | 0 to 1 | 0 to 1 |
+| Single-shot frontier LLM, no tools | 18 | 14 to 17 | 10 to 15 | **6 to 10** |
+| Orchestrated multi-agent (this project) | 18 | 18 | 18 | **18** |
 
-Checks:
+Mid and Rich are conditional on Correctness passing, so the denominators are the Correctness pass count for that row, not 18.
 
-- `secondary_tier` is one of the values the scenario allows (when the scenario flags multi-tier reasoning).
-- `action_keyword_groups`: the prediction text contains keywords from at least N of the scenario's required OR-groups. Match is case-insensitive substring.
-- `multi_tier_evidence`: for scenarios that demand multi-tier reasoning, the prediction text mentions each required tier by name.
+A single-shot frontier model usually gets the answer right but misses on cross-tier interactions, rarely producing both specific evidence citations and quantified projections in one pass, so the judge scores its prose low and the structural checks for Rich don't run. The orchestrated architecture earns its complexity because each specialist has a narrow scope and can chase fixtures and quantification deeply inside its own tier before the Evaluator synthesizes them. **If a single-shot model ever scored full marks on Rich, the orchestration would not be defensible — the eval is built to expose exactly that.**
 
-A careful single-shot agent that reads the telemetry passes most of Mid.
+## The four layers
 
-### Rich: orchestrated synthesis
+For each scenario, the agent produces a recommendation in a fixed JSON shape: a finding type, a primary tier (which part of the cloud stack), an optional secondary tier (when the issue cuts across tiers), an action category, a prose change description, supporting evidence, a projected post-change state, and a cost impact.
 
-Rich confirms the recommendation shows the kind of cross-fixture synthesis that orchestration produces.
+The evaluator scores that recommendation against the gold answer through four layers in order.
 
-Checks:
+| Layer       | Mode          | Question                                                  | What passing means                                                          |
+| ----------- | ------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Shape       | Deterministic | Is the output well-formed JSON with the required fields?  | The recommendation parses and has the expected top-level fields.            |
+| Correctness | Deterministic | Is this the right answer for this scenario?               | The finding type, primary tier, secondary tier, and action category match the gold (strict enum equality). |
+| Mid         | LLM judge     | Did the agent engage with the right evidence?             | The judge scores the prediction's `specific_change` prose against the gold at 30 or above on a 0-100 scale. |
+| Rich        | LLM judge + rules | Did the agent show orchestrated synthesis?            | The judge scores at 60 or above AND the prediction's supporting fields pass deterministic completeness checks. |
 
-- `fixture_citation`: when the scenario flags a named fixture (such as `top_queries`, `top_cache_keys`, `per_instance_breakdown`), the prediction cites at least one identifier from that fixture.
-- `cost_impact_quantified`: the `cost_impact` section includes a non-zero numeric field. Skips for no-action, deferral, and SLA-review scenarios.
-- `projected_state_quantified`: the `projected_state` section includes at least one numeric field. Skips under the same rules.
-- `evidence_structured`: the `evidence` section totals at least three bullets across telemetry, infrastructure, and correlation categories.
+The layers are stacked. Shape is a precondition for everything else. Correctness is a **hard gate**: if the recommendation is the wrong answer (one or more enum fields disagree with the gold), Mid and Rich are skipped (not failed), so a reader can tell apart "wrong answer" from "right answer but thin."
 
-Single-shot agents typically fail Rich. Orchestrated agents pass.
+### How Correctness works (deterministic)
 
-## Why three tiers, not five
+Correctness is a strict-equality check on the four enum decision fields. For each scenario, the per-scenario `scoring_rules/NN/rules.json` lists exactly one allowed value per field, matching the gold answer. A prediction passes Correctness only when all four fields equal the gold's values exactly.
 
-The dataset originally carried a five-dimension rubric (R1 through R5). That rubric collapsed two distinct concerns: was the agent shaped right at all, and did the agent really engage with the data. Floor, Mid, and Rich separate these into independently meaningful tiers. Each tier has a clear discrimination story.
+There is no partial credit at this layer. Two of the 18 scenarios (15 and 17, both diagnostic deferrals) allow `null` as an alternative for `secondary_tier_allowed`, documented in the rule file with an explicit rationale.
 
-- Floor passes for any agent that emits a shape-valid recommendation.
-- Mid separates careful from careless single-shot agents.
-- Rich separates orchestrated from single-shot.
+The enum encodes the semantic direction the prose alone could not be trusted to carry. "Scale up" and "scale down" are different `action_category` values, not phrasings of one; recommending the wrong direction fails Correctness deterministically and never reaches the judge. This is why the objective spine is enumerable: the decisions that most matter are encoded as distinct enum values, not left to prose.
 
-## Determinism, not LLM-as-judge
+### How Mid and Rich work (LLM judge + threshold gating)
 
-The evaluator uses pure-Python checks against per-scenario expectations. Same prediction file plus same expectations file equals the same score every time. No LLM call, no network, no flakiness.
+`specific_change` is the only field in a recommendation that requires real semantic understanding to evaluate. The other fields are either enums (graded by Correctness) or structured records like `evidence`, `cost_impact`, `projected_state` (whose completeness can be checked by rules without semantic interpretation). Mid and Rich therefore share a single LLM judge call that scores only `specific_change`; thresholds on that score gate the two layers.
 
-An earlier version used LLM-as-judge with Sonnet. It was replaced for two reasons. First, judge runs were not reproducible across sessions. Second, the rubric was hard to audit when expressed as prose. The deterministic version reads as Python that a reviewer can step through.
+**One judge call per scenario.** For each scenario that is correct and not short-circuited, the evaluator makes one call to a pinned LLM judge. The judge sees the gold's `specific_change` prose, the prediction's `specific_change` prose, and a global scoring prompt. It returns a structured response with a 0-100 richness score and a one-paragraph rationale.
 
-## Per-scenario and aggregate reporting
+**Richness is orthogonal to Correctness.** A correct prediction passes through the Correctness gate and into the judge, where it can land at any richness level. Low richness (a correct prediction with weak prose) is a distinct outcome from incorrect (caught at Correctness, never reaches the judge). The eval treats "wrong answer," "correct but low richness," "correct and mid richness," and "correct and high richness" as four separate diagnostic outcomes because they tell the reviewer different things about the agent.
 
-**Per-scenario** Floor, Mid, Rich each pass or fail. The output is a vector of three booleans per scenario, not a single composite score.
+**Score interpretation.**
 
-**Aggregate across 18** The report shows per-tier totals. Example: "Floor 18/18, Mid 17/18, Rich 12/18." This surfaces patterns. The orchestrated-vs-single-shot story shows up here.
+| Score range | Mid | Rich | What it means |
+| :--- | :--- | :--- | :--- |
+| 0 to 29 (low richness) | Fail | Fail | Correct enums but prose is generic, off-target, or trivially short. The agent picked the right action category by luck or process of elimination, not by genuine engagement with the data. |
+| 30 to 59 (mid richness) | Pass | Fail | Prose engages with the right direction and references the relevant tiers, but lacks the depth Rich requires (no specific entities cited, no quantified projections, generic phrasing). |
+| 60 to 100 (high richness) | Pass | Run additional structural checks below | Prose demonstrates the kind of specific, evidence-bound reasoning orchestration is meant to produce. Worth subjecting to the deterministic completeness checks. |
 
-A single composite "X percent passed" number is intentionally not produced. It hides which tier failed.
+Above 60, Rich proceeds to four deterministic completeness checks on the supporting fields:
 
-## Expected discrimination across baselines
+- **`fixture_citation`** — if the scenario flags a named fixture (`top_queries`, `top_cache_keys`, `per_instance_breakdown`), at least one identifier from that fixture must appear as a case-insensitive substring in the prose.
+- **`cost_impact_quantified`** — the `cost_impact` field has at least one non-zero numeric entry (skipped for `sla_review` and null action categories).
+- **`projected_state_quantified`** — the `projected_state` field has at least one numeric entry (skipped on the same condition).
+- **`evidence_structured`** — the `evidence` field totals at least three bullets across `telemetry_observations`, `infrastructure_context`, `correlation_observations`.
 
-The eval-set is calibrated so the three tiers separate different kinds of agents. The expected scores per baseline are below. These numbers are projections, not measurements. Real baseline runs will be published in `baselines.md` once they execute.
+All four must pass for Rich to pass. The LLM gate above 60 is the necessary condition; the structural checks are additionally required.
 
-| Baseline                                | Floor (18) | Mid (18) | Rich (18) |
-| --------------------------------------- | ---------- | -------- | --------- |
-| Trivial (returns one canned answer)     | 1 to 2     | 0        | 0         |
-| Random (picks allowed values randomly)  | 4 to 6     | 0        | 0         |
-| Single-shot frontier LLM, no tools      | 18         | 12 to 15 | 8 to 12   |
-| Orchestrated multi-agent (this project) | 18         | 18       | 18        |
+**Why this design.** The judge does the work only LLMs are good at: comparing two pieces of prose for semantic richness. Rules do the work only rules are good at: confirming structural fields exist with the right shape. Neither does the other's job, and neither needs per-scenario configuration: the judge prompt is global, the structural checks are global. Per-scenario specifics (which fixture to cite, what gold to compare against) come from the existing `expectations/NN.json` and `scoring_rules/NN/rules.json` files, which are unchanged.
 
-The table tells the discrimination story.
+The judge is made auditable to answer the usual objections to LLM-as-judge:
 
-**Floor is meant to be easy** Any agent that emits well-formed JSON with allowed category values passes Floor. Floor is a shape check, not a quality check.
+- **API key required.** The judge calls an LLM provider (Anthropic or OpenAI). Set either `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment, typically loaded from a `.env` file. When neither key is set, Mid and Rich return `(skipped)` and the deterministic layers (Shape + Correctness) still run normally. This degradation keeps the report format identical whether or not the judge runs.
+- **Provider and model configurable.** `LLM_JUDGE_PROVIDER` (`openai` or `anthropic`) picks the provider explicitly; auto-detect from which key is present otherwise, preferring OpenAI if both are set. `LLM_JUDGE_MODEL` overrides the default model for the chosen provider. Defaults: `gpt-4o-mini` (OpenAI) and `claude-haiku-4-5-20251001` (Anthropic). The default thresholds (Mid >= 30, Rich >= 60) were originally calibrated against Anthropic Haiku and verified against OpenAI gpt-4o-mini; re-run `tests/judge_live/` after any provider or model change to confirm gold-vs-gold scores still clear the high-richness band.
+- **Pinned model + temperature 0.** The model used per session is logged on every score response. Temperature 0 keeps verdicts reproducible in practice, though not guaranteed bit-identical across model versions.
+- **Published prompt.** The exact scoring prompt lives at `src/evaluator/prompts/judge_richness.md` and is version-controlled with the code. No hidden prompt; a reviewer can read what the judge was asked to do.
+- **Logged rationale.** The judge returns a structured rationale alongside the score. In Phase 7 this will be written to the audit trail; in the current placeholder phase, it surfaces only at evaluation time.
+- **Threshold transparency.** The 30 and 60 cutoffs are calibration knobs, documented above. They are picked so that a random or trivial agent lands below 30, a single-shot frontier model lands 30 to 70, and an orchestrated multi-agent system lands above 60 on most scenarios. Tuning is a one-line change.
 
-**Mid separates careless from careful** A strong single-shot model that actually reads the telemetry can pass most of Mid. A random or trivial agent cannot. Mid says "did the agent engage with the data."
+The judge never decides whether the answer is correct; Correctness does that deterministically. The judge only assesses richness on an already-correct answer. That boundary is what keeps the eval out of the circular trap of an LLM certifying an LLM.
 
-**Rich is meant to be hard** Rich requires fixture citations and quantified projections. A single-shot agent reasoning over four tiers in one prompt rarely produces both. It runs out of attention before it cites the named query from `top_queries` or quantifies the projected cost. An orchestrated agent passes Rich because each specialist has narrow scope, so each one can chase fixtures and quantification deeply inside its tier.
+**Note on borderline scores.** At temperature 0 the judge is mostly but not bit-identically reproducible. A score near a threshold (29 vs 31, 59 vs 61) can occasionally flip a layer's verdict between runs. The rationale field shows why, so borderline cases are diagnosable. No tie-break band is applied; "reproducible in practice, not in principle" is the honest description.
 
-This is what makes the multi-agent architecture earn its complexity. If a single-shot frontier model could pass Rich 18/18, the orchestration
-would not be defensible. The expected gap between rows three and four is the architectural justification.
+## Design philosophy
 
-## Calibration discipline
+### Short-circuit rule for no-action findings
 
-If a single-shot baseline ever scores 17 or 18 on Rich, the tier is too lenient and the checks get tightened. We do not lower the bar by loosening the hand-crafted recommendations. The gold answers are the ground truth; the tier checks are the dial.
+When the gold's `finding_type` is a no-action value, Mid and Rich are bypassed entirely — the judge is not called. The scorer emits a single `short_circuit` marker for each of those layers and runs none of the richness checks.
 
-## The three subset modes
+Two no-action finding types are used by current golds:
 
-Running the full 18 scenarios is the truth signal but takes time. Three subset modes serve different purposes.
+| `finding_type`        | What it means                                                                            | Why no Mid/Rich                                              |
+| --------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `no_issue_found`      | Every tier is healthy; the right answer is "do nothing"                                  | There is no action to describe or quantify                  |
+| `diagnostic_deferral` | Telemetry signals are ambiguous; the right answer is "deploy more instrumentation first" | There is no infrastructure change to describe or quantify   |
 
-**Smoke test (3 scenarios).** Scenarios 01, 06, 07. One single-tier negative, one healthy, one cross-tier. Confirms the pipeline runs end to end. Useful for rapid iteration.
+The `NO_ACTION_FINDINGS` sentinel set in `src/evaluator/enums.py` also includes a third value, `insufficient_data`, reserved for future scenarios where a specialist lacks signal within its tier. The short-circuit logic treats it the same way: no action to describe means no Mid or Rich check to run. No current gold uses it; it lives in the code only.
 
-**Coverage subset (6 scenarios).** Scenarios 01, 04, 07, 09, 12, 17. One of each major scenario type. Useful for catching regressions across architectural patterns without running the full eval.
+**Why short-circuit instead of judging no-action richness.** On a healthy scenario the right answer is "no change," and asking the judge to assess action-richness would pressure the agent toward inventing plausible-sounding action language ("we may want to consider rightsizing in the future") just to look rich, when restraint is the correct behavior. Short-circuiting removes that pressure. Correctness alone — the right finding type and tier, deterministically checked — is sufficient proof that the agent correctly chose to do nothing. Scenarios 06, 15, and 17 are the currently short-circuited scenarios; their `scoring_rules/NN/rules.json` files carry a `short_circuit` field documenting the bypass.
 
-**Full eval (18 scenarios).** All scenarios. Run before any release or after any change that could plausibly affect multiple scenarios.
+### Limitations
 
-The smoke test should complete in minutes. The full eval takes longer depending on LLM latency and ReAct loop depth.
+The objective layers are bit-for-bit reproducible. The judged layers are not, by design, and both modes have honest limits:
 
-## What the evaluation does not do
+- **What runs today vs. what is documented.** The Mid and Rich code paths in `src/evaluator/` currently apply a deterministic placeholder (keyword groups for Mid, non-zero quantification for Rich) rather than the LLM judge described above. The placeholder gives a working CI signal that catches gross failures; it does not catch the semantic failure modes the judge is designed for (semantic inversion, wrong-magnitude, mimicry without substance). Building the judge is Phase 7. Until then, predictions scored by the current code path are scored against the placeholder, not against the threshold design.
+- **Graceful degradation when no API key.** When neither `ANTHROPIC_API_KEY` nor `OPENAI_API_KEY` is in the environment, the judge cannot run. Mid and Rich return `(skipped)` (the same form as the short-circuit marker for no-action scenarios). Shape and Correctness always run and report normally. The exit code and printout format are unchanged; the `(skipped)` markers tell a reader which layers were unable to run vs. which ran and failed. This is the same pattern used for short-circuit scenarios, so downstream tooling does not need a special case.
+- **Correctness is only as granular as the enums.** It catches the wrong tier, wrong action category, and wrong direction, because those are encoded as distinct values. It does not catch a correct-category recommendation with the wrong magnitude (scaling to 8 when the gold says 12) — that is left to the judge and the human.
+- **The judge is reproducible in practice, not in principle.** Temperature 0 plus a pinned model gives stable verdicts across runs, but a model-version change can shift a borderline Mid/Rich call. Borderline scores near the 30 or 60 cutoffs can occasionally flip across runs even at temperature 0. This is acceptable because the judged layers are advisory input to a human reviewer, not an automated gate.
+- **The judge is opinionated.** Richness is a matter of degree, and reasonable judges disagree at the margin. The published prompt narrows this, and the rationale lets a human overrule any verdict. The non-override invariant guarantees a judge opinion can never flip the objective result.
+- **The Rich structural checks are existence checks, not quality checks.** `cost_impact_quantified` passes when any numeric field is non-zero; a prediction with `savings: $1` passes. The LLM gate above 60 is the main guard against trivially-quantified output; the structural checks confirm only that the supporting fields are present in the right shape.
 
-**Does not measure latency or throughput** Operational performance is a separate concern. It belongs in observability metrics outside the audit trail.
+### The decision space an agent navigates
 
-**Does not re-validate the audit trail** The audit trail's correctness is structurally enforced by the Reasoning Harness's evidence-binding. The evaluator checks recommendation content, not chain integrity.
+Correctness is scored by strict equality on four enum fields: `finding_type`, `primary_tier`, `secondary_tier`, and `action_category`. Each scenario's gold defines the single valid combination; see `eval-set/scoring_rules/NN/rules.json` for per-scenario allowed values and `src/evaluator/enums.py` for the full value universes. Special sentinels (`no_issue_found`, `diagnostic_deferral`, `deferred`) let the agent explicitly signal "do nothing" or "need more data," and are handled by the short-circuit rule above.
 
-**Does not score the agent against itself across runs** LLM non-determinism makes cross-run comparisons noisy. The methodology compares agent output to the hand-crafted target, not to prior agent runs.
+Each `rules.json` file carries the four enum allow-lists, a `description`, optional `*_rationale` prose, an optional `short_circuit` block (no-action scenarios only), and an optional `must_cite_fixture` pointer (used by Rich's `fixture_citation` structural check for the two scenarios that have a named fixture). That is the full schema; the placeholder Mid fields were removed when Mid moved to the LLM judge.
 
-**Does not gate releases** This is a portfolio project. There is no release gate. In a production deployment, the methodology would inform a gate, but that is out of scope.
+### Why four layers
 
-## How to run the evaluator
+Each layer catches a different failure mode. Collapsing them into a single pass/fail score would hide the diagnostic signal that makes the eval useful, and would blur the deterministic verdicts into the opinionated ones. The four layers map to the discrimination story the architecture is meant to tell:
 
-The evaluator is a CLI under `src/evaluator/`. It has no third-party runtime dependencies. It reads scenarios from the Hugging Face cache managed by `src/data_loader.py`, so no separate dataset download or `--dataset` flag is needed for normal use.
+- **Shape** is meant to be trivial — any agent that emits well-formed JSON passes; it catches malformed output, not quality.
+- **Correctness** is the main objective gate — a random agent picks the wrong finding type most of the time, and a single-shot model usually gets the easy scenarios right but misses on cross-tier and deferral cases.
+- **Mid** separates careless from careful among agents that already passed Correctness — the LLM judge scores how well the prose engages with the right evidence.
+- **Rich** is meant to be hard — passing requires both a high judge score and structurally complete supporting fields; a single-shot agent rarely clears both bars in one pass; an orchestrated specialist, scoped narrowly, can.
 
-```bash
-# Full three-tier scoring (default)
-python -m src.evaluator.eval --predictions your_predictions.json
+## Scope
 
-# One tier only
-python -m src.evaluator.eval --predictions your_predictions.json --tier floor
-python -m src.evaluator.eval --predictions your_predictions.json --tier mid
-python -m src.evaluator.eval --predictions your_predictions.json --tier rich
+- **Does not measure latency or throughput.** Operational performance is a separate concern.
+- **Does not re-validate the audit trail.** That is enforced structurally by the Reasoning Harness's evidence-binding. The evaluator checks recommendation content, not chain integrity.
+- **Does not compare agent runs to each other.** The methodology compares agent output to the hand-crafted gold, not to prior agent runs.
+- **Does not gate releases.** This is a portfolio project, and the judged layers are advisory to a human reviewer rather than an automated gate. In a production deployment the methodology would inform a gate, but that is out of scope.
 
-# Machine-readable JSON (for CI dashboards, regression tracking)
-python -m src.evaluator.eval --predictions your_predictions.json --json > scores.json
+## How to use the evaluator
 
-# Use a local dataset copy instead of the HF cache (for offline runs)
-python -m src.evaluator.eval --predictions your_predictions.json --dataset path/to/local/dataset
-```
+| You want to                                              | Read or run                                                             |
+| -------------------------------------------------------- | ----------------------------------------------------------------------- |
+| See a sample recommendation report                       | [`sample_runs/reports/`](../sample_runs/)                               |
+| See the deterministic layers discriminate live           | Run `python eval-set/demo_scoring.py` (Shape + Correctness, no API key) |
+| Run the full four-layer score (judge needs an API key)   | Run `python -m src.evaluator.eval --app-name app-NN --prediction your_file.json` |
+| Verify every gold passes the deterministic layers        | Run `pytest tests/integration/test_golden_answers.py -v`                |
+| Read the judge prompt                                    | [`src/evaluator/prompts/judge_richness.md`](../src/evaluator/prompts/)  |
+| Inspect a gold answer                                    | [`eval-set/expectations/NN.json`](../eval-set/)                         |
+| Inspect a scoring rule (allowed enum values)             | [`eval-set/scoring_rules/NN/rules.json`](../eval-set/)                  |
+| See what the input telemetry looks like                  | [`dataset-examples/scenario_NN/`](../dataset-examples/)                 |
+| Understand the architecture this feeds into              | [`README.md`](../README.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md)    |
 
-### What the output looks like
-
-```
-=========================================================================
-  sid   floor    mid    rich  notes
-  ------------------------------------------------------------------------
-  01     PASS   PASS   PASS
-  02     PASS   PASS   FAIL  rich:fixture_citation
-  ...
-  Totals: floor 18/18  mid 17/18  rich 12/18
-==========================================================================
-```
-
-A failure note lists the failing check names. Use `--json` for full
-per-check detail.
-
-### Exit codes
-
-- `0`: every submitted prediction passed every requested tier.
-- `1`: at least one tier failed for at least one scenario.
-- `2`: usage error (missing file, malformed JSON, dataset not reachable).
-
-## The evaluator as a build artifact
-
-The evaluator is bundled inside this orchestration project. The pieces:
-
-- `src/evaluator/tiers.py`: Floor + Mid + Rich check logic. Pure Python,
-  no LLM, no network.
-- `src/evaluator/expectations/NN/evaluation_expectations.json`: the
-  per-scenario allowed values, keyword groups, and fixture names. Same
-  shape across all 18 scenarios; only values change.
-- `src/evaluator/eval.py`: the CLI scorer.
-
-The dataset published on Hugging Face does not ship a quality scorer. It ships gold answers plus a Floor sanity check. The full Floor + Mid + Rich evaluator is owned by this project. See [decisions.md](decisions.md) section 12 for the ownership rationale..
-
-A `make eval` entry point runs the evaluator over a predictions file and writes a structured report. The report is itself an artifact that can be inspected, archived, and compared across versions of the agent.
-
-This closes the loop on "what does it mean for this system to work?" There is a concrete answer. It is reproducible. Same prediction file plus same expectations equals the same score, every time.
+The commands and paths above describe the planned evaluator layout; the design is documented here ahead of implementation. The judge prompt path will exist when Phase 7 lands. `app-NN` matches the `mcp-server.md` convention.

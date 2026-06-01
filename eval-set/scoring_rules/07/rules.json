@@ -10,28 +10,6 @@
     "cache_capacity_adjustment"
   ],
   "action_category_rationale": "cache_capacity_adjustment is the canonical cache-tier action (scaling nodes, capacity tuning). Cache warming and key redesign are secondary actions documented in specific_change prose but do not change the primary action category.",
-  "action_keyword_groups": [
-    [
-      "cache",
-      "elasticache",
-      "redis"
-    ],
-    [
-      "scale",
-      "increase",
-      "add nodes",
-      "add cluster",
-      "more nodes"
-    ],
-    [
-      "warming",
-      "warm",
-      "key design",
-      "cache key",
-      "hit ratio"
-    ]
-  ],
-  "action_keyword_min_match": 2,
   "secondary_tier_allowed": [
     "database"
   ]

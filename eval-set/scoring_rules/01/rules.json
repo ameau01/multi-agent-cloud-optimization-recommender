@@ -9,26 +9,6 @@
   "action_category_allowed": [
     "rightsizing"
   ],
-  "action_keyword_groups": [
-    [
-      "downsize",
-      "rightsize",
-      "right-size",
-      "scale down",
-      "reduce instance"
-    ],
-    [
-      "t3.medium",
-      "smaller",
-      "fewer"
-    ],
-    [
-      "replica",
-      "instance count",
-      "instance size"
-    ]
-  ],
-  "action_keyword_min_match": 2,
   "secondary_tier_allowed": [
     null
   ]

@@ -9,20 +9,6 @@
   "action_category_allowed": [
     "rightsizing"
   ],
-  "action_keyword_groups": [
-    [
-      "minor",
-      "modest",
-      "small",
-      "slight"
-    ],
-    [
-      "downsize",
-      "rightsize",
-      "compute"
-    ]
-  ],
-  "action_keyword_min_match": 1,
   "secondary_tier_allowed": [
     null
   ]

@@ -10,26 +10,6 @@
   "action_category_allowed": [
     "load_balancer_reconfiguration"
   ],
-  "action_keyword_groups": [
-    [
-      "least_outstanding_requests",
-      "least-outstanding-requests",
-      "least outstanding",
-      "least-conn"
-    ],
-    [
-      "round_robin",
-      "round-robin",
-      "round robin"
-    ],
-    [
-      "alb",
-      "application load balancer",
-      "target group",
-      "load balancer"
-    ]
-  ],
-  "action_keyword_min_match": 2,
   "secondary_tier_allowed": [
     "compute"
   ]

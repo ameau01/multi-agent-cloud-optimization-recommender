@@ -10,26 +10,6 @@
     "query_cache_optimization"
   ],
   "action_category_rationale": "The fix is two-pronged: optimize slow queries AND increase the connection pool. Either action_category framing captures a legitimate primary lens on the problem.",
-  "action_keyword_groups": [
-    [
-      "optimize",
-      "tune",
-      "improve"
-    ],
-    [
-      "slow query",
-      "query",
-      "sql",
-      "index"
-    ],
-    [
-      "connection pool",
-      "pool size",
-      "max_connections",
-      "increase pool"
-    ]
-  ],
-  "action_keyword_min_match": 2,
   "must_cite_fixture": "top_queries",
   "secondary_tier_allowed": [
     null

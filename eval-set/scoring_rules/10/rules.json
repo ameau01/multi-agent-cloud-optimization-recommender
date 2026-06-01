@@ -11,34 +11,5 @@
   ],
   "action_category_allowed": [
     "network_topology_change"
-  ],
-  "action_keyword_groups": [
-    [
-      "privatelink",
-      "private link",
-      "private-link",
-      "vpc endpoint",
-      "transit gateway",
-      "direct connect"
-    ],
-    [
-      "vpc peering",
-      "peering",
-      "cross-region"
-    ],
-    [
-      "retry",
-      "exponential backoff",
-      "circuit breaker",
-      "timeout"
-    ]
-  ],
-  "action_keyword_min_match": 2,
-  "multi_tier_evidence": {
-    "must_cite_tiers": [
-      "network",
-      "compute"
-    ],
-    "min_tiers": 2
-  }
+  ]
 }

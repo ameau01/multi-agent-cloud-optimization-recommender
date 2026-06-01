@@ -9,22 +9,6 @@
   "action_category_allowed": [
     "rightsizing"
   ],
-  "action_keyword_groups": [
-    [
-      "downsize",
-      "rightsize",
-      "smaller instance",
-      "scale down"
-    ],
-    [
-      "database",
-      "db",
-      "rds",
-      "db.r",
-      "db.m"
-    ]
-  ],
-  "action_keyword_min_match": 2,
   "secondary_tier_allowed": [
     null
   ]

@@ -10,31 +10,6 @@
   "action_category_allowed": [
     "rightsizing"
   ],
-  "action_keyword_groups": [
-    [
-      "downsize",
-      "rightsize",
-      "scale down"
-    ],
-    [
-      "m5.large",
-      "m5.xlarge",
-      "smaller",
-      "db.r"
-    ],
-    [
-      "database",
-      "compute"
-    ]
-  ],
-  "action_keyword_min_match": 2,
-  "multi_tier_evidence": {
-    "must_cite_tiers": [
-      "compute",
-      "database"
-    ],
-    "min_tiers": 2
-  },
   "secondary_tier_allowed": [
     "database"
   ]

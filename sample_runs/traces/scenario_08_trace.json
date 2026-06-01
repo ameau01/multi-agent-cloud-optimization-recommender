@@ -1,0 +1,317 @@
+{
+  "_note": "Sample audit trail for scenario 08. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
+
+  "_what_is_real": [
+    "Structure: every node has an ID; foreign-key references resolve (verifiable via verify_trace.py)",
+    "Tool-call action signatures: summary_statistics(...), get_top_queries(...), get_time_pattern(...), these match the Reasoning Harness's read contract",
+    "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
+    "Cross-tier correlation values: 0.945, lag 15min, alignment 0.979, pulled from correlation_evidence.json in the published dataset",
+    "Specialist finding types and evidence_refs lists: structurally identical to what the real specialists will produce"
+  ],
+
+  "_what_is_illustrative": [
+    "Timestamps: triggered_at, completed_at, placeholder values for a review that has not occurred",
+    "Durations: wall_clock_seconds, duration_ms per step, plausible estimates, not measurements",
+    "bundle_hash: 'sha256:8e1c4b...d2', fabricated",
+    "review_id: 'rev_a3f9b21c', fabricated",
+    "Specific p50/p90/p95 observation numbers in each react_step, derived from gold-answer reasoning, not from a real summary_statistics tool call",
+    "Drift-check verdicts (all 'tight'): what the architecture commits to producing, not what was measured by a live evaluator",
+    "Action Harness checks (all 'pass'): same; architectural commitment, not measurement"
+  ],
+
+  "_what_is_verifiable_today": [
+    "Run: python sample_runs/verify_trace.py",
+    "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
+    "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
+  ],
+
+
+  "review": {
+    "review_id": "rev_a3f9b21c",
+    "scenario_id": "08",
+    "trigger": {
+      "trigger_type": "on_demand",
+      "triggered_at": "2026-05-29T14:00:00Z",
+      "triggered_by": "alex.meau"
+    },
+    "input_bundle": {
+      "bundle_hash": "sha256:8e1c4b...d2",
+      "input_files": [
+        "metadata.json",
+        "main.tf",
+        "compute_telemetry.json",
+        "database_telemetry.json",
+        "cache_telemetry.json",
+        "network_telemetry.json",
+        "correlation_evidence.json"
+      ]
+    },
+    "outcome": "issue_found",
+    "completed_at": "2026-05-29T14:00:47Z",
+    "wall_clock_seconds": 47
+  },
+
+  "input_harness_validation": {
+    "step_id": "ih_001",
+    "bundle_well_formed": true,
+    "schema_conformance": "all tiers conform",
+    "record_completeness": "1344 records per tier",
+    "timestamp_continuity": "monotonic, 15min spacing, no gaps",
+    "cross_tier_alignment": "index-aligned across tier arrays",
+    "terraform_parseable": true,
+    "verdict": "pass"
+  },
+
+  "system_mapper": {
+    "step_id": "sm_001",
+    "input": "Terraform main.tf",
+    "output": {
+      "tiers_present": ["compute", "database", "cache", "network"],
+      "tiers_relevant": ["compute", "database", "network"],
+      "dependency_graph": {
+        "compute_to_database": "aws_instance.app -> aws_db_instance.primary",
+        "compute_to_network": "aws_instance.app -> aws_lb.frontend"
+      },
+      "analysis_plan": {
+        "specialists_to_invoke": [
+          "compute_analyst",
+          "data_layer_analyst",
+          "network_analyst"
+        ],
+        "cross_tier_pairs": [
+          ["compute", "database"],
+          ["compute", "network"]
+        ]
+      }
+    },
+    "duration_ms": 480
+  },
+
+  "supervisor_decision": {
+    "step_id": "sup_001",
+    "input": "analysis_plan from system_mapper",
+    "output": {
+      "specialists_invoked": [
+        "compute_analyst",
+        "data_layer_analyst",
+        "network_analyst"
+      ],
+      "invocation_mode": "parallel"
+    },
+    "duration_ms": 60
+  },
+
+  "specialist_findings": [
+    {
+      "step_id": "spc_data_001",
+      "specialist": "data_layer_analyst",
+      "react_steps": [
+        {
+          "step_id": "rs_data_001",
+          "thought": "Are database query latencies elevated during business hours?",
+          "action": "summary_statistics(tier='database', metric='db_query_p95_latency_ms')",
+          "observation_id": "obs_data_001",
+          "observation": {
+            "p50": 195.0,
+            "p90": 480.0,
+            "p95": 660.0,
+            "mean": 244.0,
+            "windowed_max": 820.0
+          }
+        },
+        {
+          "step_id": "rs_data_002",
+          "thought": "Elevated. Are specific queries dominating?",
+          "action": "get_top_queries(scenario_id='08', limit=10)",
+          "observation_id": "obs_data_002",
+          "observation": {
+            "queries_above_300ms": 6,
+            "top_query_p95_ms": 820,
+            "top_query_calls_14d": 6048000
+          }
+        },
+        {
+          "step_id": "rs_data_003",
+          "thought": "Six slow queries with high call counts. Are connection pools saturating?",
+          "action": "get_time_pattern(tier='database', metric='connection_pool_usage_pct')",
+          "observation_id": "obs_data_003",
+          "observation": {
+            "p95": 88.0,
+            "peak_window_count": 14,
+            "pattern": "business_hours_saturation"
+          }
+        }
+      ],
+      "finding": {
+        "finding_type": "issue_found",
+        "primary_observation": "Six queries account for the worst p95 latencies, holding on 11 of 14 days",
+        "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003"],
+        "confidence": "high"
+      },
+      "duration_ms": 8200
+    },
+    {
+      "step_id": "spc_comp_001",
+      "specialist": "compute_analyst",
+      "react_steps": [
+        {
+          "step_id": "rs_comp_001",
+          "thought": "Is compute capacity the bottleneck?",
+          "action": "summary_statistics(tier='compute', metric='cpu_p95')",
+          "observation_id": "obs_comp_001",
+          "observation": {
+            "p50": 24.0,
+            "p90": 32.0,
+            "p95": 27.0,
+            "mean": 22.0
+          }
+        },
+        {
+          "step_id": "rs_comp_002",
+          "thought": "Healthy. Is application latency rising during the same windows?",
+          "action": "summary_statistics(tier='compute', metric='application_p95_latency_ms')",
+          "observation_id": "obs_comp_002",
+          "observation": {
+            "p50": 240.0,
+            "p90": 540.0,
+            "p95": 660.0,
+            "mean": 290.0
+          }
+        }
+      ],
+      "finding": {
+        "finding_type": "no_issue_found",
+        "primary_observation": "CPU stable at 27%. Application latency tracks database latency, not compute load.",
+        "evidence_refs": ["obs_comp_001", "obs_comp_002"],
+        "confidence": "high"
+      },
+      "duration_ms": 5400
+    },
+    {
+      "step_id": "spc_net_001",
+      "specialist": "network_analyst",
+      "react_steps": [
+        {
+          "step_id": "rs_net_001",
+          "thought": "Is network contributing to the latency rise?",
+          "action": "summary_statistics(tier='network', metric='network_latency_p95_ms')",
+          "observation_id": "obs_net_001",
+          "observation": {
+            "p50": 0.6,
+            "p90": 0.9,
+            "p95": 1.2,
+            "mean": 0.7
+          }
+        },
+        {
+          "step_id": "rs_net_002",
+          "thought": "Network latency is sub-millisecond. Packet loss?",
+          "action": "summary_statistics(tier='network', metric='packet_loss_rate')",
+          "observation_id": "obs_net_002",
+          "observation": {
+            "p50": 0.0,
+            "p95": 0.001,
+            "mean": 0.0002
+          }
+        }
+      ],
+      "finding": {
+        "finding_type": "no_issue_found",
+        "primary_observation": "Bandwidth and packet loss within healthy bands.",
+        "evidence_refs": ["obs_net_001", "obs_net_002"],
+        "confidence": "high"
+      },
+      "duration_ms": 4100
+    }
+  ],
+
+  "evaluator_records": {
+    "step_id": "eval_001",
+    "drift_check": [
+      {
+        "specialist": "data_layer_analyst",
+        "target_finding_id": "spc_data_001",
+        "verdict": "tight",
+        "rationale": "Evidence chain resolves cleanly to obs_data_001, obs_data_002, obs_data_003. Each conclusion is directly supported by the cited observations."
+      },
+      {
+        "specialist": "compute_analyst",
+        "target_finding_id": "spc_comp_001",
+        "verdict": "tight",
+        "rationale": "Evidence chain resolves cleanly to obs_comp_001, obs_comp_002. No-issue conclusion is justified by stable CPU."
+      },
+      {
+        "specialist": "network_analyst",
+        "target_finding_id": "spc_net_001",
+        "verdict": "tight",
+        "rationale": "Evidence chain resolves cleanly to obs_net_001, obs_net_002. No-issue conclusion is justified by clean signals."
+      }
+    ],
+    "cross_tier_interactions": [
+      {
+        "interaction_id": "xt_001",
+        "tiers": ["compute", "database"],
+        "interaction_type": "downstream_cascade",
+        "correlation_source": "correlation_evidence.json",
+        "correlation_index": 0,
+        "coefficient": 0.945,
+        "lag_minutes": 15,
+        "alignment_score": 0.979,
+        "interpretation": "Database latency leads compute latency by 15 minutes. Compute is the symptom, not the cause."
+      },
+      {
+        "interaction_id": "xt_002",
+        "tiers": ["compute", "network"],
+        "interaction_type": "none",
+        "interpretation": "No correlation flagged. Network is healthy and not contributing."
+      }
+    ],
+    "synthesis": {
+      "synthesis_id": "syn_001",
+      "contributing_findings": ["spc_data_001", "spc_comp_001", "spc_net_001"],
+      "finding_type": "issue_found",
+      "primary_tier": "database",
+      "secondary_tier": "compute",
+      "action_category": "query_cache_optimization",
+      "trade_off_scores": {
+        "cost": "moderate increase ($2,400/month for read replicas)",
+        "performance": "significant improvement (66% p95 reduction)",
+        "reliability": "improved (SLA compliance restored)",
+        "risk": "low (standard patterns)"
+      },
+      "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "xt_001"],
+      "evaluator_confidence": "high"
+    },
+    "duration_ms": 14200
+  },
+
+  "action_harness_gate": {
+    "step_id": "ah_001",
+    "gate_id": "ah_001",
+    "evaluator_id": "eval_001",
+    "synthesis_id": "syn_001",
+    "checks": [
+      {"check": "well_formedness", "verdict": "pass"},
+      {"check": "evidence_completeness", "verdict": "pass", "verified_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_comp_001", "obs_comp_002", "obs_net_001", "obs_net_002", "xt_001"]},
+      {"check": "severity_calibration", "verdict": "pass"},
+      {"check": "duplication_against_recent_reviews", "verdict": "pass"}
+    ],
+    "verdict": "pass",
+    "duration_ms": 220
+  },
+
+  "review_packet": {
+    "packet_id": "pkt_a3f9b21c_01",
+    "gate_id": "ah_001",
+    "synthesis_id": "syn_001",
+    "review_id": "rev_a3f9b21c",
+    "rendered_at": "2026-05-29T14:00:47Z",
+    "rendered_to": "sample_runs/reports/scenario_08_report.md",
+    "evidence_chain_length": 11,
+    "audit_walk_starting_point": "review.review_id = rev_a3f9b21c"
+  },
+
+  "hitl_decision": {
+    "_note": "HITL state is filled in after a human reviewer takes action. Empty here because the system just produced the report."
+  }
+}

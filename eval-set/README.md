@@ -23,15 +23,18 @@ hand-crafted recommendations from
 
 ## How the pieces fit
 
-| Folder/file                                | Role                                                |
-|--------------------------------------------|-----------------------------------------------------|
-| `eval-set/expectations/NN.json`            | Gold answer. What the right recommendation is.      |
-| `eval-set/scoring_rules/NN/rules.json`     | Per-scenario rules. What counts as a match.         |
-| `src/evaluator/`                           | Pure scoring code. Reads gold + rules from here.    |
-| `src/evaluator/eval.py`                    | CLI entry point (`--app-name`, `--prediction`).      |
-| `src/evaluator/evaluator.py`               | `Evaluator` class for Python API use.               |
-| `tests/integration/test_golden_answers.py` | Pytest: every gold passes every layer.              |
-| `tests/integration/test_edge_cases.py`     | Pytest: bad mocks fail the expected layer.          |
+| Folder/file                                | Role                                                                |
+|--------------------------------------------|---------------------------------------------------------------------|
+| `eval-set/expectations/NN.json`            | Gold answer. What the right recommendation is.                      |
+| `eval-set/scoring_rules/NN/rules.json`     | Per-scenario rules. The enum-allow-lists for Correctness.           |
+| `src/evaluator/`                           | Pure scoring code. Reads gold + rules from here.                    |
+| `src/evaluator/eval.py`                    | CLI entry point (`--app-name`, `--prediction`, `--no-judge`).       |
+| `src/evaluator/evaluator.py`               | `Evaluator` class for Python API use.                               |
+| `src/evaluator/judge_client.py`            | Anthropic SDK wrapper for the LLM judge (Mid + Rich).               |
+| `src/evaluator/prompts/judge_richness.md`  | Global scoring prompt used by the judge.                            |
+| `tests/integration/test_golden_answers.py` | Pytest: every gold passes every deterministic layer.                |
+| `tests/integration/test_edge_cases.py`     | Pytest: bad mocks fail the expected layer (with judge mocking).     |
+| `tests/judge_live/`                        | Opt-in tests that exercise the real Anthropic judge.                |
 
 `src/evaluator/` is pure Python with no data files. `eval-set/` is pure
 data. The dependency runs one way: `src/evaluator/` reads from
@@ -50,7 +53,44 @@ The Python library API (`Evaluator` class) operates at the
 dataset-internal level and uses `scenario_id`; the translation happens
 at the CLI surface.
 
+## Two-mode evaluator
+
+The four layers split into two modes (see [`docs/eval-set.md`](../docs/eval-set.md) for the full design):
+
+- **Deterministic gates.** Shape (well-formed JSON) and Correctness
+  (strict enum equality on the four decision fields). Pure-Python,
+  reproducible, no API key required.
+- **LLM judge.** Mid and Rich score the `specific_change` prose against
+  the gold via a pinned LLM call (temperature 0). Mid passes if
+  score >= 30; Rich passes if score >= 60 AND the four deterministic
+  structural checks pass (fixture_citation, cost_impact_quantified,
+  projected_state_quantified, evidence_structured).
+
+The judge supports either OpenAI or Anthropic:
+
+- Set `OPENAI_API_KEY` in `.env` for OpenAI (default model `gpt-4o-mini`).
+- Set `ANTHROPIC_API_KEY` in `.env` for Anthropic (default model
+  `claude-haiku-4-5-20251001`).
+- `LLM_JUDGE_PROVIDER` (`openai` or `anthropic`) picks the provider
+  explicitly when both keys are set; otherwise the provider is
+  auto-detected and prefers OpenAI.
+- `LLM_JUDGE_MODEL` overrides the default model for the chosen provider.
+
+When neither key is set, Mid and Rich return `(skipped)` markers and
+the report-format contract holds. The CLI and the demo both honor this
+graceful-degradation path.
+
+**Calibration caveat.** The default thresholds (Mid >= 30, Rich >= 60)
+were originally calibrated against Anthropic Haiku and verified against
+OpenAI gpt-4o-mini. Switching providers or models may shift borderline
+verdicts; re-run `tests/judge_live/` after any change to confirm
+gold-vs-gold self-validation still clears the high-richness band.
+
 ## Four ways to use this folder
+
+> **Prerequisite for all CLI / Python-API uses.** Run `uv sync` once
+> from the project root so that the `src` package is installed in the
+> venv. After that, the commands below work from any directory.
 
 ### 1. As reference
 
@@ -59,13 +99,30 @@ recommendation looks like for that scenario.
 
 ### 2. Score one prediction (CLI)
 
+With the LLM judge (default; needs `ANTHROPIC_API_KEY` in `.env`):
+
 ```bash
-python -m src.evaluator.eval --app-name app-08 --prediction my_prediction.json
+uv run python -m src.evaluator.eval \
+    --app-name app-08 \
+    --prediction my_prediction.json
+```
+
+Deterministic-only (no API key needed):
+
+```bash
+uv run python -m src.evaluator.eval \
+    --app-name app-08 \
+    --prediction my_prediction.json \
+    --no-judge
 ```
 
 Output: per-layer verdict (Shape / Correctness / Mid / Rich) + a
-one-line summary. Exit codes: 0 if all layers pass, 1 if any layer
-fails, 2 on usage error (missing file, malformed JSON, unknown app).
+one-line summary.
+
+Exit codes:
+- `0` if every layer that ran passed (graceful skips don't count as failures)
+- `1` if any layer that ran actually failed
+- `2` on usage error (missing file, malformed JSON, unknown app)
 
 ### 3. Score programmatically (Python API)
 
@@ -73,11 +130,16 @@ fails, 2 on usage error (missing file, malformed JSON, unknown app).
 import json
 from pathlib import Path
 from src.evaluator import Evaluator
+from src.evaluator.judge_client import JudgeClient
+
+# Build the judge if an API key is available, otherwise None (graceful skip).
+judge = JudgeClient() if JudgeClient.is_available() else None
 
 # Build once, score many
 e = Evaluator.from_eval_set_dir(
     "eval-set/",
     dataset_examples_dir="dataset-examples/",
+    judge=judge,
 )
 
 prediction = json.loads(Path("my_prediction.json").read_text())
@@ -85,18 +147,26 @@ result = e.score_one("08", prediction)
 
 print(result["shape"].passed)        # bool
 print(result["correctness"].passed)  # bool
-# Mid + Rich are TierResult when scored, the string "skipped" when gated.
+# Mid + Rich are TierResult when scored, the string "skipped" only when
+# Correctness fails (the structural gate). When the judge is unavailable,
+# Mid + Rich are TierResult with a 'skipped' check inside.
 ```
 
-The Evaluator caches rules at init; subsequent `score_one` calls are
-in-memory dict lookups.
+The Evaluator caches rules + gold answers at init; subsequent
+`score_one` calls reuse them.
 
 ### 4. Run the demo (see the evaluator on one scenario)
 
+Deterministic only (default; no API key):
+
 ```bash
-python eval-set/demo_scoring.py
-# or
-scripts/run_demo.sh
+uv run python eval-set/demo_scoring.py
+```
+
+With the LLM judge:
+
+```bash
+uv run python eval-set/demo_scoring.py --with-judge
 ```
 
 Output: scores the gold for `app-08` and prints the four-layer table.
@@ -107,27 +177,32 @@ integration test instead (next section).
 
 ## How to verify
 
-Two levels of verification, depending on what you want to check.
+Three levels of verification, depending on what you want to check.
 
 ### Verify one scenario via the CLI
 
 ```bash
-# Score the gold for app-08 against its own rules.
-python -m src.evaluator.eval \
+# Score the gold for app-08 against its own rules (deterministic only).
+uv run python -m src.evaluator.eval \
     --app-name app-08 \
-    --prediction eval-set/expectations/08.json
+    --prediction eval-set/expectations/08.json \
+    --no-judge
 ```
+
+Expected: exit code 0, "Shape and Correctness passed..." on stdout.
+
+With the LLM judge enabled (drop `--no-judge`; requires API key):
 
 Expected: exit code 0, "All layers passed." on stdout.
 
 Pick a different `app-NN` (between `app-01` and `app-18`) and a
 matching `expectations/NN.json` to verify a different scenario.
 
-### Verify all 18 scenarios via pytest
+### Verify all 18 scenarios via pytest (deterministic)
 
 ```bash
 # Headline benchmark-integrity test: every gold passes every layer.
-python -m pytest tests/integration/test_golden_answers.py -v
+uv run pytest tests/integration/test_golden_answers.py -v
 
 # Or via the wrapper script:
 scripts/run_golden.sh -v
@@ -140,17 +215,35 @@ and metadata-omitted paths).
 If anything fails here, the gold answers and the scoring rules have
 drifted apart. Fix one or the other before publishing.
 
-### Verify everything (data + behavior)
+### Verify the full suite (data + behavior + CLI)
 
 ```bash
-# Full integration suite: data validation + scorer behavior + edge cases + CLI.
-python -m pytest tests/integration/ -v
+# Full default suite: data validation + scorer behavior + edge cases + CLI.
+uv run pytest -q
 
 # Or:
 scripts/run_integration.sh -v
 ```
 
-Expected: 326+ tests pass.
+Expected: 415 passed, 3 skipped. The 3 skips are CLI discrimination
+tests that need `ANTHROPIC_API_KEY` to assert end-to-end failure-mode
+discrimination through the live judge. They run automatically when the
+key is set.
+
+### Verify the LLM judge against itself (opt-in, costs API calls)
+
+```bash
+uv run pytest tests/judge_live/ -v
+```
+
+15 API calls to Anthropic (~$0.02 total at Haiku pricing, ~45 seconds).
+Each asserts that a gold's `specific_change` scores >= 75 when judged
+against itself, plus one tighter test on scenario 08. If any scenario
+undershoots, the prompt or the gold's prose needs tightening.
+
+This suite is excluded from the default `pytest` collection (configured
+in `pyproject.toml`); run it explicitly when iterating on the judge
+prompt or after dataset edits.
 
 ## Coverage at a glance
 
@@ -174,8 +267,13 @@ Expected: 326+ tests pass.
 The 18 gold answers + scoring rules diverge from the published Hugging
 Face dataset as of Phase 6.6 (strict enum equality, new `deferred` and
 `cache_capacity_adjustment` values, short-circuit rule for no-action
-findings). The local copies are the source of truth; the published HF
-dataset is one revision behind. Re-publication is a separate task.
+findings). The Phase 6.16 design change moved Mid + Rich from
+deterministic placeholders to an LLM-judged threshold gate, and
+Phase 6.16b removed the now-unused `action_keyword_groups`,
+`action_keyword_min_match`, and `multi_tier_evidence` fields from
+`scoring_rules/NN/rules.json`. The local copies are the source of
+truth; the published HF dataset is one revision behind. Re-publication
+is a separate task.
 
 ## License
 
