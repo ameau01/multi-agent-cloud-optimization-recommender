@@ -1,6 +1,15 @@
-# --- Internal-only workspace ---
+# --- Internal-only workspace (never push) ---
 .workspace/
 INTERNAL_*
+
+# --- HuggingFace dataset (downloaded at runtime, not source) ---
+# data_loader.py caches the dataset snapshot here on first call. Reset
+# with `rm -rf .hf_cache`.
+.hf_cache/
+
+# --- One-shot HuggingFace dataset uploads (regenerated, not source) ---
+HF_dataset_update*.zip
+HF_upload/
 
 # --- Secrets and environment ---
 .env
@@ -57,7 +66,7 @@ coverage.xml
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# --- IDE  ---
+# --- IDE and editor ---
 .vscode/
 .idea/
 *.swp
@@ -65,7 +74,7 @@ coverage.xml
 *~
 .DS_Store
 
-# --- Project data ---
+# --- Project data (generated artifacts, not source) ---
 data/raw/
 data/interim/
 data/wiki/

@@ -1,5 +1,5 @@
 {
-  "_note": "Sample audit trail for scenario 08. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
+  "_note": "Sample audit trail for scenario 08. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md for status. See docs/audit-trail.md for the full schema.",
 
   "_what_is_real": [
     "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.sh)",

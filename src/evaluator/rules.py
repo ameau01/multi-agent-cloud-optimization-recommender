@@ -1,8 +1,7 @@
 """Load and validate per-scenario scoring rules.
 
-The scoring-rules dict (after Phase 7.13: the `scoring_metadata` block
-inside a composite, or the legacy `scoring_rules/NN/rules.json` shape)
-defines:
+The scoring-rules dict (the `scoring_metadata` block inside a composite,
+or the legacy flat `scoring_rules/NN/rules.json` shape) defines:
   - finding_type_allowed, primary_tier_allowed, secondary_tier_allowed,
     action_category_allowed: per-scenario enum allowed lists (each value
     must be in the corresponding universe defined in enums.py)

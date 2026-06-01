@@ -4,7 +4,7 @@ The industry is saturated with multi-agent systems that a single LLM prompt coul
 
 The system is scored against an 18-scenario synthetic dataset ([`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations)), each scenario carrying one hand-crafted gold recommendation. Every agent output is graded through four layers: two deterministic, two LLM-judged. The split is deliberate, and the reasoning behind it is the most important thing in this document.
 
-> **Implementation status.** Shape and Correctness are implemented in `src/evaluator/`. Mid and Rich currently run a deterministic placeholder (keyword matching for Mid, non-zero quantification for Rich) that gives a working CI signal. The auditable LLM judge described in this document is the Phase 7 design, not yet built. The closing line of this doc repeats this caveat next to the run commands.
+> **Implementation status.** All four layers are implemented in `src/evaluator/`. Shape and Correctness run as deterministic gates. Mid and Rich score the prediction's `specific_change` prose against the gold via an LLM judge (OpenAI or Anthropic, picked from the environment; see `src/evaluator/judge_client.py`). When no API key is available, Mid and Rich return graceful `(skipped)` markers and only the deterministic layers run.
 
 ## Two modes, one principle
 
@@ -59,7 +59,7 @@ The layers are stacked. Shape is a precondition for everything else. Correctness
 
 ### How Correctness works (deterministic)
 
-Correctness is a strict-equality check on the four enum decision fields. For each scenario, the per-scenario `scoring_rules/NN/rules.json` lists exactly one allowed value per field, matching the gold answer. A prediction passes Correctness only when all four fields equal the gold's values exactly.
+Correctness is a strict-equality check on the four enum decision fields. For each scenario, the per-scenario `scoring_metadata` block inside `expectations/NN/raw_recommendation.json` lists exactly one allowed value per field, matching the gold answer. A prediction passes Correctness only when all four fields equal the gold's values exactly.
 
 There is no partial credit at this layer. Two of the 18 scenarios (15 and 17, both diagnostic deferrals) allow `null` as an alternative for `secondary_tier_allowed`, documented in the rule file with an explicit rationale.
 
@@ -90,7 +90,7 @@ Above 60, Rich proceeds to four deterministic completeness checks on the support
 
 All four must pass for Rich to pass. The LLM gate above 60 is the necessary condition; the structural checks are additionally required.
 
-**Why this design.** The judge does the work only LLMs are good at: comparing two pieces of prose for semantic richness. Rules do the work only rules are good at: confirming structural fields exist with the right shape. Neither does the other's job, and neither needs per-scenario configuration: the judge prompt is global, the structural checks are global. Per-scenario specifics (which fixture to cite, what gold to compare against) come from the existing `expectations/NN.json` and `scoring_rules/NN/rules.json` files, which are unchanged.
+**Why this design.** The judge does the work only LLMs are good at: comparing two pieces of prose for semantic richness. Rules do the work only rules are good at: confirming structural fields exist with the right shape. Neither does the other's job, and neither needs per-scenario configuration: the judge prompt is global, the structural checks are global. Per-scenario specifics (which fixture to cite, what gold to compare against) come from each scenario's composite at `expectations/NN/raw_recommendation.json`, which carries both the gold prediction (top-level) and the rubric (`scoring_metadata` block).
 
 The judge is made auditable to answer the usual objections to LLM-as-judge:
 
@@ -98,7 +98,7 @@ The judge is made auditable to answer the usual objections to LLM-as-judge:
 - **Provider and model configurable.** `LLM_JUDGE_PROVIDER` (`openai` or `anthropic`) picks the provider explicitly; auto-detect from which key is present otherwise, preferring OpenAI if both are set. `LLM_JUDGE_MODEL` overrides the default model for the chosen provider. Defaults: `gpt-4o-mini` (OpenAI) and `claude-haiku-4-5-20251001` (Anthropic). The default thresholds (Mid >= 30, Rich >= 60) were originally calibrated against Anthropic Haiku and verified against OpenAI gpt-4o-mini; re-run `tests/judge_live/` after any provider or model change to confirm gold-vs-gold scores still clear the high-richness band.
 - **Pinned model + temperature 0.** The model used per session is logged on every score response. Temperature 0 keeps verdicts reproducible in practice, though not guaranteed bit-identical across model versions.
 - **Published prompt.** The exact scoring prompt lives at `src/evaluator/prompts/judge_richness.md` and is version-controlled with the code. No hidden prompt; a reviewer can read what the judge was asked to do.
-- **Logged rationale.** The judge returns a structured rationale alongside the score. In Phase 7 this will be written to the audit trail; in the current placeholder phase, it surfaces only at evaluation time.
+- **Logged rationale.** The judge returns a structured rationale alongside the score. It surfaces at evaluation time; when the audit-trail substrate lands, the rationale will be persisted there as part of every review's evaluator record.
 - **Threshold transparency.** The 30 and 60 cutoffs are calibration knobs, documented above. They are picked so that a random or trivial agent lands below 30, a single-shot frontier model lands 30 to 70, and an orchestrated multi-agent system lands above 60 on most scenarios. Tuning is a one-line change.
 
 The judge never decides whether the answer is correct; Correctness does that deterministically. The judge only assesses richness on an already-correct answer. That boundary is what keeps the eval out of the circular trap of an LLM certifying an LLM.
@@ -120,13 +120,13 @@ Two no-action finding types are used by current golds:
 
 The `NO_ACTION_FINDINGS` sentinel set in `src/evaluator/enums.py` also includes a third value, `insufficient_data`, reserved for future scenarios where a specialist lacks signal within its tier. The short-circuit logic treats it the same way: no action to describe means no Mid or Rich check to run. No current gold uses it; it lives in the code only.
 
-**Why short-circuit instead of judging no-action richness.** On a healthy scenario the right answer is "no change," and asking the judge to assess action-richness would pressure the agent toward inventing plausible-sounding action language ("we may want to consider rightsizing in the future") just to look rich, when restraint is the correct behavior. Short-circuiting removes that pressure. Correctness alone — the right finding type and tier, deterministically checked — is sufficient proof that the agent correctly chose to do nothing. Scenarios 06, 15, and 17 are the currently short-circuited scenarios; their `scoring_rules/NN/rules.json` files carry a `short_circuit` field documenting the bypass.
+**Why short-circuit instead of judging no-action richness.** On a healthy scenario the right answer is "no change," and asking the judge to assess action-richness would pressure the agent toward inventing plausible-sounding action language ("we may want to consider rightsizing in the future") just to look rich, when restraint is the correct behavior. Short-circuiting removes that pressure. Correctness alone — the right finding type and tier, deterministically checked — is sufficient proof that the agent correctly chose to do nothing. Scenarios 06, 15, and 17 are the currently short-circuited scenarios; their composites carry a `short_circuit` field inside `scoring_metadata` documenting the bypass.
 
 ### Limitations
 
 The objective layers are bit-for-bit reproducible. The judged layers are not, by design, and both modes have honest limits:
 
-- **What runs today vs. what is documented.** The Mid and Rich code paths in `src/evaluator/` currently apply a deterministic placeholder (keyword groups for Mid, non-zero quantification for Rich) rather than the LLM judge described above. The placeholder gives a working CI signal that catches gross failures; it does not catch the semantic failure modes the judge is designed for (semantic inversion, wrong-magnitude, mimicry without substance). Building the judge is Phase 7. Until then, predictions scored by the current code path are scored against the placeholder, not against the threshold design.
+- **The judge is the runtime path for Mid and Rich.** When an API key is available, Mid and Rich score the prediction's prose against the gold via the LLM judge. When no key is available, both layers return `(skipped)` markers and only the deterministic gates (Shape, Correctness) report verdicts. CI runs the deterministic gates unconditionally; live-judge tests under `tests/judge_live/` exercise the judge path explicitly and are opt-in because they cost API calls.
 - **Graceful degradation when no API key.** When neither `ANTHROPIC_API_KEY` nor `OPENAI_API_KEY` is in the environment, the judge cannot run. Mid and Rich return `(skipped)` (the same form as the short-circuit marker for no-action scenarios). Shape and Correctness always run and report normally. The exit code and printout format are unchanged; the `(skipped)` markers tell a reader which layers were unable to run vs. which ran and failed. This is the same pattern used for short-circuit scenarios, so downstream tooling does not need a special case.
 - **Correctness is only as granular as the enums.** It catches the wrong tier, wrong action category, and wrong direction, because those are encoded as distinct values. It does not catch a correct-category recommendation with the wrong magnitude (scaling to 8 when the gold says 12) — that is left to the judge and the human.
 - **The judge is reproducible in practice, not in principle.** Temperature 0 plus a pinned model gives stable verdicts across runs, but a model-version change can shift a borderline Mid/Rich call. Borderline scores near the 30 or 60 cutoffs can occasionally flip across runs even at temperature 0. This is acceptable because the judged layers are advisory input to a human reviewer, not an automated gate.
@@ -135,7 +135,7 @@ The objective layers are bit-for-bit reproducible. The judged layers are not, by
 
 ### The decision space an agent navigates
 
-Correctness is scored by strict equality on four enum fields: `finding_type`, `primary_tier`, `secondary_tier`, and `action_category`. Each scenario's gold defines the single valid combination; see `eval-set/scoring_rules/NN/rules.json` for per-scenario allowed values and `src/evaluator/enums.py` for the full value universes. Special sentinels (`no_issue_found`, `diagnostic_deferral`, `deferred`) let the agent explicitly signal "do nothing" or "need more data," and are handled by the short-circuit rule above.
+Correctness is scored by strict equality on four enum fields: `finding_type`, `primary_tier`, `secondary_tier`, and `action_category`. Each scenario's gold defines the single valid combination; see `eval-set/expectations/NN/raw_recommendation.json` (the `scoring_metadata.*_allowed` arrays) for per-scenario allowed values and `src/evaluator/enums.py` for the full value universes. Special sentinels (`no_issue_found`, `diagnostic_deferral`, `deferred`) let the agent explicitly signal "do nothing" or "need more data," and are handled by the short-circuit rule above.
 
 Each `rules.json` file carries the four enum allow-lists, a `description`, optional `*_rationale` prose, an optional `short_circuit` block (no-action scenarios only), and an optional `must_cite_fixture` pointer (used by Rich's `fixture_citation` structural check for the two scenarios that have a named fixture). That is the full schema; the placeholder Mid fields were removed when Mid moved to the LLM judge.
 
@@ -164,9 +164,9 @@ Each layer catches a different failure mode. Collapsing them into a single pass/
 | Run the full four-layer score (judge needs an API key)   | Run `python -m src.evaluator.eval --app-name app-NN --prediction your_file.json` |
 | Verify every gold passes the deterministic layers        | Run `pytest tests/integration/test_golden_answers.py -v`                |
 | Read the judge prompt                                    | [`src/evaluator/prompts/judge_richness.md`](../src/evaluator/prompts/)  |
-| Inspect a gold answer                                    | [`eval-set/expectations/NN.json`](../eval-set/)                         |
-| Inspect a scoring rule (allowed enum values)             | [`eval-set/scoring_rules/NN/rules.json`](../eval-set/)                  |
+| Inspect a gold answer + its rubric (one composite file)  | [`eval-set/expectations/NN/raw_recommendation.json`](../eval-set/)      |
+| Read the composite Pydantic schema                       | [`src/composite/schema.py`](../src/composite/schema.py)                 |
 | See what the input telemetry looks like                  | [`dataset-examples/scenario_NN/`](../dataset-examples/)                 |
 | Understand the architecture this feeds into              | [`README.md`](../README.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md)    |
 
-The commands and paths above describe the planned evaluator layout; the design is documented here ahead of implementation. The judge prompt path will exist when Phase 7 lands. `app-NN` matches the `mcp-server.md` convention.
+The commands and paths above describe the current evaluator layout. The judge prompt lives at `src/evaluator/prompts/judge_richness.md`. `app-NN` matches the `mcp-server.md` convention.

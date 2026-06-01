@@ -108,19 +108,18 @@ def mock_predictions(mock_predictions_dir: Path) -> dict[str, dict]:
 
 
 # ============================================================
-# Judge mock fixture (Phase 7 forward-compat)
+# Judge mock fixture
 # ============================================================
 @pytest.fixture
 def mock_judge():
-    """Return a fake LLM judge callable for Phase 7 tests.
+    """Return a fake LLM judge callable for threshold-gating tests.
 
     The fake judge reads the `_expected_judge_score` annotation from the
     prediction dict and returns it as the score. This lets tests assert
     threshold-gating behavior without an API call.
 
-    Phase 7 will wire score_mid + score_rich to accept a judge dependency.
-    This fixture matches the planned signature: judge(gold, prediction)
-    returns {'score': int, 'rationale': str}.
+    Matches the signature score_mid + score_rich expect:
+    judge(gold, prediction) returns {'score': int, 'rationale': str}.
     """
     def _judge(gold: dict, prediction: dict) -> dict:
         score = prediction.get("_expected_judge_score", 100)

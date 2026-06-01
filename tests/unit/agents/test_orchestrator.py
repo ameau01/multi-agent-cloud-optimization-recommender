@@ -1,9 +1,9 @@
 """Unit test: the agent-orchestrator interface contract holds.
 
-The orchestrator is a Phase 7 placeholder. Until the real agents land,
-src/agents/orchestrate() must exist and raise NotImplementedError with a
-specific message that points users at the evaluator (which IS the stable
-interface). This test pins that contract.
+The orchestrator is a placeholder while the agents are being built.
+Until they land, src/agents/orchestrate() must exist and raise
+NotImplementedError with a specific message that points users at the
+evaluator (which IS the stable interface). This test pins that contract.
 
 Run:
     pytest tests/unit/test_agents_contract.py -v
@@ -35,7 +35,12 @@ class TestOrchestratorInterfaceContract:
         with pytest.raises(NotImplementedError) as exc_info:
             orchestrate({"scenario_id": "08"})
         msg = str(exc_info.value)
-        assert "Phase 7" in msg, "error message should reference Phase 7 status"
+        assert "not yet implemented" in msg.lower(), (
+            "error message should make the not-yet-implemented status explicit"
+        )
         assert "evaluator" in msg.lower(), (
             "error message should reference the stable evaluator interface"
+        )
+        assert "CHANGELOG" in msg, (
+            "error message should point readers at CHANGELOG for status"
         )

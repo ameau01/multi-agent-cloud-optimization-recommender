@@ -27,12 +27,12 @@ Each non-good mock carries a leading-underscore annotation:
   _judge_score_rationale     why the prose earns that score
 
 The mock_judge fixture in conftest.py reads these annotations to simulate
-the judge without an API call, letting these tests exercise the new
-threshold logic before Phase 7 wires up the real client.
+the judge without an API call, letting these tests exercise the
+threshold logic without touching the live LLM client.
 
-Tests that depend on the Phase 7 judge-aware signature of score_mid /
-score_rich are marked with `@pytest.mark.skip(reason="Phase 7: ...")`
-so they document the contract without breaking CI today.
+Tests that depend on judge-aware code paths still under development are
+marked with `@pytest.mark.skip(...)` so they document the contract
+without breaking CI today.
 
 Run:
     pytest tests/integration/test_edge_cases.py -v

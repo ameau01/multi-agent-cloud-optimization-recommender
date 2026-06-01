@@ -29,8 +29,9 @@ uses. The Pydantic schema lives at
 
 The 18 gold answers descend from the hand-crafted recommendations at
 [`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations).
-The Phase 7.13 composite refactor moved the scoring rubric inside the
-same file; the published Hugging Face dataset is one revision behind.
+The local copies now bundle the scoring rubric inside the same file
+(the composite layout); the published Hugging Face dataset still ships
+the original flat-file shape and is one revision behind on naming.
 
 ## How the pieces fit
 
@@ -279,16 +280,22 @@ prompt or after dataset edits.
 
 ## Provenance
 
-The 18 composites diverge from the published Hugging Face dataset as of
-Phase 6.6 (strict enum equality, new `deferred` and
-`cache_capacity_adjustment` values, short-circuit rule for no-action
-findings). The Phase 6.16 design change moved Mid + Rich from
-deterministic placeholders to an LLM-judged threshold gate. Phase 6.16b
-removed the now-unused `action_keyword_groups`, `action_keyword_min_match`,
-and `multi_tier_evidence` fields from the rubric. The Phase 7.13
-composite refactor merged the legacy `expectations/NN.json` (gold) and
-`scoring_rules/NN/rules.json` (rubric) into one
-`expectations/NN/raw_recommendation.json` per scenario, validated by
+The 18 composites diverge from the published Hugging Face dataset in
+three ways:
+
+  - **Strict enum equality.** Correctness uses single-value allow-lists;
+    new sentinels `deferred` (for diagnostic-deferral scenarios) and
+    `cache_capacity_adjustment` (for cache-pressure scenarios) appear
+    locally but not yet on Hugging Face. A short-circuit rule bypasses
+    Mid + Rich for no-action findings.
+  - **Threshold-gated Mid + Rich.** Mid and Rich are scored by a pinned
+    LLM judge (OpenAI or Anthropic) with a 30 / 60 score gate; the
+    earlier deterministic-placeholder fields (`action_keyword_groups`,
+    `action_keyword_min_match`, `multi_tier_evidence`) have been
+    removed from the rubric.
+  - **Composite layout.** The legacy `expectations/NN.json` (gold) and
+    `scoring_rules/NN/rules.json` (rubric) are merged into one
+    `expectations/NN/raw_recommendation.json` per scenario, validated by
 the `Composite` Pydantic schema. The local copies are the source of
 truth; the published HF dataset is one revision behind. Re-publication
 is a separate task.

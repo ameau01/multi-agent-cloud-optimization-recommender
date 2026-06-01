@@ -1,6 +1,6 @@
 """Back-compat facade for the four-layer scorer.
 
-After the Phase 6.10 refactor, the scoring functions live in separate modules:
+The scoring functions live in separate modules per layer:
   - shape_measure.py        score_shape
   - correctness_measure.py  score_correctness, score_floor
   - mid_measure.py          score_mid
@@ -9,7 +9,7 @@ After the Phase 6.10 refactor, the scoring functions live in separate modules:
   - types.py                CheckResult, TierResult
   - enums.py                NO_ACTION_FINDINGS, FINDING_TYPES, etc.
 
-This module re-exports everything from those new locations so older imports
+This module re-exports everything from those locations so older imports
 keep working:
 
     from src.evaluator.tiers import score_correctness, NO_ACTION_FINDINGS
@@ -26,7 +26,7 @@ from .types import CheckResult, TierResult
 # Enum sentinel sets
 from .enums import NO_ACTION_FINDINGS
 
-# Layer scorers (Phase 6.10: renamed to _measure.py suffix; richness split into mid + rich)
+# Layer scorers
 from .shape_measure import score_shape
 from .correctness_measure import score_correctness, score_floor
 from .mid_measure import score_mid

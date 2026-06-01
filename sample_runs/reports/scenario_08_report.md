@@ -14,7 +14,7 @@
 > **What's illustrative.** Timestamps, durations, the `review_id`, the
 > bundle hash, drift-check verdicts, and the Action Harness gate
 > verdict are placeholders. Those values come from a real review only
-> after the agent system runs (Phase 7 in `CHANGELOG.md`).
+> after the agent system runs (see CHANGELOG.md).
 >
 > **What's verifiable today.** Trace structure and the traceability
 > contract. Run `scripts/verify_trace.sh` to confirm every
@@ -141,12 +141,12 @@ The traceability contract:
   observation_id. A reviewer can walk from any cited ID back to the
   tool call that produced it.
 
-**Today (Phase pre-7):** `scripts/verify_trace.sh` runs the
+**Today:** `scripts/verify_trace.sh` runs the
 verification externally. It enumerates every evidence_ref the report
 cites and confirms each resolves to a logged observation. Exits
 non-zero if any pointer is dangling.
 
-**At Phase 7 (agent system implemented):** the Action Harness's
+**When the agent system lands:** the Action Harness's
 `evidence_completeness` check runs the same logic at gate time on every
 live review. The `action_harness_gate.checks[1].verified_refs` field in
 the trace is what carries the result. A dangling reference would fail
