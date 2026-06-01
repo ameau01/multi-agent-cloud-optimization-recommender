@@ -25,9 +25,9 @@ from the top-level prediction fields + specific_change.
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable
 
-from ..composite import Composite, ReportContent
+from ..models.composite import Composite, ReportContent
 
 
 _SECTION_DIVIDER = "---"
@@ -36,7 +36,7 @@ _SECTION_DIVIDER = "---"
 # ============================================================
 # Table helpers
 # ============================================================
-def _markdown_table(rows: list[dict[str, object]], columns: list[str]) -> str:
+def _markdown_table(rows: list[dict[str, Any]], columns: list[str]) -> str:
     """Render a list of dicts as a markdown table.
 
     Column widths are computed from the longest cell in each column so

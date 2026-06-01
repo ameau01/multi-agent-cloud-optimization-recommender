@@ -40,8 +40,6 @@ Run:
 
 from __future__ import annotations
 
-import pytest
-
 from src.evaluator.tiers import (
     score_shape,
     score_correctness,

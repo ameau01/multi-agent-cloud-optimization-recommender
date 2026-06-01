@@ -46,13 +46,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..composite import Composite
+from ..models.composite import Composite
 from .correctness_measure import score_correctness, score_floor
 from .mid_measure import score_mid
 from .richness_measure import score_rich
-from .rules import load_rules_dir, load_rules_file, validate_rules
+from .rules import load_rules_file, validate_rules
 from .shape_measure import score_shape
-from .types import TierResult
 
 
 class Evaluator:

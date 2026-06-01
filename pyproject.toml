@@ -45,6 +45,38 @@ dev = [
     "mypy",
 ]
 
+[tool.ruff]
+# Targeted only at our code. Skip the vendored HF dataset cache and
+# anything ruff can't usefully reach.
+exclude = [".hf_cache", ".venv", "__pycache__", ".uv-cache"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files MUST manipulate sys.path before importing project modules,
+# because they live in folders that aren't on the default path (eval-set/,
+# tests/) and need to make `src.*` importable without a prior `pip install -e`.
+# E402 (module-level import not at top of file) is a false-positive for this
+# legitimate pattern.
+"eval-set/demo_scoring.py" = ["E402"]
+"tests/integration/conftest.py" = ["E402"]
+"tests/list_mcp_tools.py" = ["E402"]
+
+[tool.mypy]
+# Enable the Pydantic mypy plugin (ships with pydantic>=2.0; no extra install).
+# This lets mypy understand:
+#   - Pydantic model construction (Cls(field=value, ...))
+#   - Field validators and the typed `__init__` signature
+#   - Generic models and inheritance chains (Composite IS-A Recommendation)
+# The `model_validate(dict)` pattern works without the plugin too, but the
+# plugin gives clearer errors for any future code that builds models via
+# named kwargs from helpers whose return shape isn't statically declared.
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+# Defaults are conservative; these are the recommended tightenings.
+init_forbid_extra = true      # error if you pass an unknown field at construction
+init_typed = true             # __init__ params get the field's type, not Any
+warn_required_dynamic_aliases = true
+
 [tool.pytest.ini_options]
 # By default, exclude live-judge tests from collection. They cost API
 # calls and require ANTHROPIC_API_KEY. Run them explicitly with:

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 
-from ..composite import Composite
+from ..models.composite import Composite
 
 
 # Order matters: matches the existing trace.json layout.

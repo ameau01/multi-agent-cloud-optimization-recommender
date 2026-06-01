@@ -1,18 +1,32 @@
-"""Pydantic schema for the composite recommendation artifact.
+"""Pydantic schemas for the recommendation + composite artifacts.
 
-A composite contains:
-  - Top-level prediction fields (read by the evaluator).
-  - `scoring_metadata`: the rubric for scoring this scenario (formerly
-    eval-set/scoring_rules/NN/rules.json).
-  - Optional `trace`: audit trail mirroring sample_runs/traces/*.json.
-  - Optional `report_content`: structured content the renderer uses to
-    produce a markdown report.
-  - Optional `_provenance`: honest framing (what is real vs illustrative)
-    plus authorship metadata.
+Two related models live here, with `Composite` inheriting from
+`Recommendation`:
 
-For eval-set composites ("thin"), the optional sections are usually
-absent. For live-agent or sample_runs composites ("full"), all sections
-populate.
+  Recommendation     — what the agent orchestration produces. Lenient
+                       (extra='allow', most fields Optional). Only two
+                       fields are mandatory: `scenario_id` (to identify
+                       the scenario) and `specific_change` (the rich-text
+                       answer the LLM judge compares against gold). The
+                       agent has structural freedom inside every other
+                       field; sub-objects are typed but each internal
+                       field is Optional.
+
+  Composite          — the strict gold-quality artifact. IS-A Recommendation
+                       with three additions:
+                         (a) tightens finding_type, evidence, reasoning
+                             to required (gold MUST populate them)
+                         (b) carries the scoring rubric (ScoringMetadata)
+                         (c) carries optional trace + report_content +
+                             provenance sections for full-composite runs.
+
+This split lets one set of consumers (the evaluator and the renderer)
+operate on either shape: the agent's lenient output flows through the
+same code paths as a strict gold. Composite IS a Recommendation via
+Liskov substitution.
+
+Audit-trail sub-shapes inside TraceSection stay as `dict[str, Any]`;
+their typing is deferred until each harness/agent emitter exists.
 
 Schema version is 1.0. Bump explicitly on breaking changes.
 """
@@ -28,15 +42,12 @@ SCHEMA_VERSION = "1.0"
 
 
 # ============================================================
-# Inner blocks shared with eval-set/expectations/NN.json today
+# Inner sub-objects (typed but each internal field Optional)
 # ============================================================
 class Conclusion(BaseModel):
-    """The conclusion block mirrors top-level enum fields plus a headline.
-
-    Validated for consistency in the migration script: top-level
-    finding_type/primary_tier/etc. must equal conclusion's fields.
-    """
-    finding_type: str
+    """The conclusion block. All fields Optional so a partial agent
+    output validates; gold answers populate them."""
+    finding_type: str | None = None
     primary_tier: str | None = None
     secondary_tier: str | None = None
     action_category: str | None = None
@@ -46,9 +57,11 @@ class Conclusion(BaseModel):
 
 
 class Evidence(BaseModel):
-    telemetry_observations: list[str] = Field(default_factory=list)
-    infrastructure_context: list[str] = Field(default_factory=list)
-    correlation_observations: list[str] = Field(default_factory=list)
+    """Evidence bullets. All three lists Optional and default None so an
+    agent can emit any subset; gold answers populate all three."""
+    telemetry_observations: list[str] | None = None
+    infrastructure_context: list[str] | None = None
+    correlation_observations: list[str] | None = None
 
     model_config = ConfigDict(extra="allow")
 
@@ -59,8 +72,6 @@ class ProjectedState(BaseModel):
     latency_p95_ms_estimate: str | None = None
     sla_availability_preserved: bool | None = None
     notes: str | None = None
-
-    # Some scenarios use additional fields beyond the canonical four.
     model_config = ConfigDict(extra="allow")
 
 
@@ -70,7 +81,6 @@ class CostImpact(BaseModel):
     savings_monthly_usd: float | None = None
     savings_pct: float | None = None
     notes: str | None = None
-
     model_config = ConfigDict(extra="allow")
 
 
@@ -79,12 +89,11 @@ class RiskAssessment(BaseModel):
     mitigation: str | None = None
     rollback: str | None = None
     notes: str | None = None
-
     model_config = ConfigDict(extra="allow")
 
 
 # ============================================================
-# Scoring metadata (formerly eval-set/scoring_rules/NN/rules.json)
+# Scoring metadata (gold-only; rubric for the evaluator)
 # ============================================================
 class ShortCircuit(BaseModel):
     """When present and `applies=true`, Mid and Rich are bypassed."""
@@ -93,27 +102,20 @@ class ShortCircuit(BaseModel):
 
 
 class ScoringMetadata(BaseModel):
-    """Per-scenario rules consumed by the evaluator.
-
-    Replaces eval-set/scoring_rules/NN/rules.json. Lives inside the
-    composite so the gold answer and its scoring rubric are one artifact.
-    """
+    """Per-scenario rules consumed by the evaluator. Strict shape — the
+    rubric is hand-authored and never partial."""
     description: str
     finding_type_allowed: list[str | None]
     primary_tier_allowed: list[str | None]
     secondary_tier_allowed: list[str | None]
     action_category_allowed: list[str | None]
 
-    # Rationales (documentation only; not consumed by the scorer)
     finding_type_rationale: str | None = None
     primary_tier_rationale: str | None = None
     secondary_tier_rationale: str | None = None
     action_category_rationale: str | None = None
 
-    # Rich-layer config
     must_cite_fixture: str | None = None
-
-    # Short-circuit marker for no-action scenarios
     short_circuit: ShortCircuit | None = None
 
     model_config = ConfigDict(extra="forbid")
@@ -123,12 +125,10 @@ class ScoringMetadata(BaseModel):
 # Optional: audit trail (populated for full composites)
 # ============================================================
 class TraceSection(BaseModel):
-    """Audit trail. Mirrors sample_runs/traces/scenario_NN_trace.json.
-
-    All fields optional so that thin composites can omit this section.
-    When present, fields are populated as a complete audit trail of how
-    a recommendation was produced.
-    """
+    """Audit trail. Sub-fields stay as dict[str, Any] until each emitter
+    exists — typing them now would be premature commitment to shapes the
+    harnesses and agents have not yet produced. Next phase tightens
+    these per-emitter."""
     review: dict[str, Any] | None = None
     input_harness_validation: dict[str, Any] | None = None
     system_mapper: dict[str, Any] | None = None
@@ -146,51 +146,23 @@ class TraceSection(BaseModel):
 # Optional: structured report content (populated for full composites)
 # ============================================================
 class ReportContent(BaseModel):
-    """Structured content the renderer uses to produce report.md.
-
-    All fields optional so renderers can use a thin composite to produce
-    a basic report (built from top-level prediction fields), or use a
-    full composite for richer narrative.
-
-    Field groups:
-      - title block: scenario_name, analysis_date, status_line
-      - banner blockquote: report_banner (three named paragraphs)
-      - final-recommendation table: final_recommendation_rows
-      - narrative sections: summary, cross_tier_analysis,
-        evaluator_confidence, how_to_verify, replayability
-      - structured tables: specialist_findings_summary,
-        trade_off_scores_table, evidence_anchors, handoff
-    """
-    # Title block
+    """Structured content the renderer uses to produce report.md."""
     scenario_name: str | None = None
     analysis_date: str | None = None
     status_line: str | None = None
-
-    # Banner blockquote — three paragraphs of prose explaining what is
-    # real, illustrative, and verifiable in this specific report. These
-    # are scenario-specific and verbatim; structural cousins of the
-    # composite-level _provenance lists, but written for a report reader
-    # rather than a JSON consumer.
     report_banner: dict[str, str] | None = None
-
-    # Final-recommendation table rows. Each entry is {field, value}.
     final_recommendation_rows: list[dict[str, str]] | None = None
-
-    # Narrative sections (free prose; markdown paragraphs).
     headline: str | None = None
     summary: str | None = None
     cross_tier_analysis: str | None = None
     evaluator_confidence: str | None = None
     how_to_verify: str | None = None
     replayability: str | None = None
-
-    # Structured tables — the renderer turns these into markdown tables.
     specialist_findings_summary: list[dict[str, Any]] | None = None
     trade_off_scores: dict[str, Any] | None = None
     trade_off_scores_table: list[dict[str, str]] | None = None
     evidence_anchors: list[dict[str, Any]] | None = None
     handoff: dict[str, Any] | None = None
-
     model_config = ConfigDict(extra="allow")
 
 
@@ -198,12 +170,7 @@ class ReportContent(BaseModel):
 # Optional: provenance (honest framing for hand-crafted composites)
 # ============================================================
 class Provenance(BaseModel):
-    """Honest framing: what is real, what is illustrative.
-
-    Hand-crafted golds and sample_runs use this to document that
-    timestamps, IDs, and durations are placeholders. Live-agent
-    composites use this to document the run that produced them.
-    """
+    """Honest framing: what is real vs illustrative."""
     authored_at: str | None = None
     dataset_version: str | None = None
     author: str | None = None
@@ -211,48 +178,79 @@ class Provenance(BaseModel):
     what_is_real: list[str] | None = None
     what_is_illustrative: list[str] | None = None
     what_is_verifiable_today: list[str] | None = None
+    model_config = ConfigDict(extra="allow")
+
+
+# ============================================================
+# Recommendation — the agent's output contract
+# ============================================================
+class Recommendation(BaseModel):
+    """Lenient agent output. The shared contract between agent
+    orchestration (producer) and the evaluator + renderer (consumers).
+
+    Only scenario_id and specific_change are mandatory. specific_change
+    is required because the LLM judge compares it against the gold's
+    specific_change for the richness layer; no other field is required
+    for the evaluator's deterministic layers to run.
+
+    All other top-level fields and every sub-object are Optional. The
+    agent may emit any subset; the evaluator scores what is present and
+    marks unscored layers as 'skipped' or 'failed'.
+
+    extra='allow' lets the agent attach debugging or trace fields
+    without breaking validation. The renderer ignores unknown keys.
+    """
+    scenario_id: str                    # MANDATORY
+    specific_change: str                # MANDATORY (richness judge input)
+
+    # Optional structural fields:
+    finding_type: str | None = None
+    primary_tier: str | None = None
+    secondary_tier: str | None = None
+    action_category: str | None = None
+
+    # Optional sub-objects (typed; each internal field Optional):
+    conclusion: Conclusion | None = None
+    evidence: Evidence | None = None
+    reasoning: str | None = None
+    projected_state: ProjectedState | None = None
+    cost_impact: CostImpact | None = None
+    risk_assessment: RiskAssessment | None = None
 
     model_config = ConfigDict(extra="allow")
 
 
 # ============================================================
-# Top-level composite
+# Composite — the strict gold-quality artifact
 # ============================================================
-class Composite(BaseModel):
-    """Composite recommendation artifact.
+class Composite(Recommendation):
+    """Composite recommendation artifact. IS-A Recommendation with
+    three additions: tighter required-field set (gold semantics), the
+    scoring rubric, and optional trace + report_content + provenance
+    sections.
 
-    Top-level prediction fields are what the evaluator reads. The
-    scoring_metadata block is the rubric. The optional trace +
-    report_content sections support rendering and audit replay.
+    The 18 gold answers are Composites. Sample_runs runs that record
+    their own audit + report content are also Composites. A live
+    agent's output is a Recommendation; it becomes a Composite only
+    when paired with its scoring rubric and run metadata.
     """
     schema_version: str = SCHEMA_VERSION
-    scenario_id: str
 
-    # Prediction fields (the evaluator reads these directly)
-    finding_type: str
-    primary_tier: str | None = None
-    secondary_tier: str | None = None
-    action_category: str | None = None
-    specific_change: str
-    # conclusion is None for no_issue_found scenarios where there is no
-    # action to summarize (e.g. scenario 06). For all other scenarios it
-    # mirrors the four top-level enum fields plus a headline.
-    conclusion: Conclusion | None = None
-    evidence: Evidence
-    reasoning: str
-    projected_state: ProjectedState | None = None
-    cost_impact: CostImpact | None = None
-    risk_assessment: RiskAssessment | None = None
+    # Tighten Recommendation's lenient declarations. Pydantic v2 lets
+    # subclasses shadow field declarations to make them stricter.
+    # Note: `conclusion` stays Optional (scenario 06's gold has
+    # conclusion=null because no_issue_found has nothing to summarize).
+    finding_type: str                   # required (gold must have one)
+    evidence: Evidence                  # required (gold has bullets)
+    reasoning: str                      # required (gold has narrative)
 
-    # Scoring rubric
+    # Gold-only sections:
     scoring_metadata: ScoringMetadata
-
-    # Optional sections for the renderer / replay tools
     trace: TraceSection | None = None
     report_content: ReportContent | None = None
 
-    # Provenance carried as _provenance on disk (leading underscore
-    # signals metadata-not-payload). On the model it's named provenance_.
+    # Provenance carried as _provenance on disk (leading underscore signals
+    # metadata-not-payload). On the model it's named provenance_.
     provenance_: Provenance | None = Field(default=None, alias="_provenance")
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -262,9 +260,7 @@ class Composite(BaseModel):
     # --------------------------------------------------------
     def to_rules_dict(self) -> dict[str, Any]:
         """Return the scoring_metadata as a flat dict matching the legacy
-        rules.json shape. Lets evaluator code that consumed rules.json
-        keep its existing key access patterns.
-        """
+        rules.json shape."""
         sm = self.scoring_metadata
         out: dict[str, Any] = {
             "description": sm.description,
@@ -289,12 +285,10 @@ class Composite(BaseModel):
 
     def to_gold_dict(self) -> dict[str, Any]:
         """Return the top-level prediction fields as a flat dict matching
-        the legacy expectations/NN.json shape. Lets evaluator code that
-        consumed expectations keep its existing access patterns.
+        the legacy expectations/NN.json shape.
 
         Uses `exclude_unset=True` on sub-models so explicit nulls in the
-        source (e.g. conclusion.secondary_tier = null on scenario 18)
-        round-trip exactly without inventing absent fields.
+        source round-trip exactly without inventing absent fields.
         """
         out: dict[str, Any] = {
             "scenario_id": self.scenario_id,
@@ -311,8 +305,6 @@ class Composite(BaseModel):
             "evidence": self.evidence.model_dump(exclude_unset=True),
             "reasoning": self.reasoning,
         }
-        # Emit optional sections when present, OR as explicit null when
-        # the legacy file set them to null (e.g. scenarios 06/15/17).
         set_fields = self.model_fields_set
         for key in ("projected_state", "cost_impact", "risk_assessment"):
             value = getattr(self, key)

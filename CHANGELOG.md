@@ -49,3 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Update docs/mcp-server.md
 
+
+## [Pydantic model] refactory
+### Added
+- src/models: Added new pydantic model as data contract 
+- Treating telemetry model as input data contract to agentic system.
+- Treating recommendation model as output data contract from agentic system.
+
+### Changed.
+- refactory src/renderer to use recomendation pydantic model
+- refactory src/evaluator to use recommendation pydantic model
+- refactory src/mcp_server to use telemetry pydantic model
+
+### Documentation
+- `docs/eval-set.md`, `docs/eval-set.md`, `docs/mcp-server.md`

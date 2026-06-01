@@ -121,11 +121,16 @@ def test_list_scenarios_returns_18_app_names():
 
 
 def test_get_summary_statistics_telemetry():
+    """The summary-stats response wraps its body in `statistics:` (envelope
+    + named body convention, matching business_context / cost_baseline /
+    before_after_evidence). See docs/mcp-server.md."""
     result = _call_tool("get_summary_statistics",
                         {"app_name": "app-08", "tier": "compute", "metric": "cpu_p95"})
     assert result["app_name"] == "app-08"
     assert result["tier"] == "compute"
-    assert {"mean", "p50", "p90", "p95"}.issubset(result.keys())
+    assert result["metric"] == "cpu_p95"
+    assert "statistics" in result
+    assert {"mean", "p50", "p90", "p95"}.issubset(result["statistics"].keys())
 
 
 def test_get_business_context_context():
@@ -140,6 +145,33 @@ def test_get_top_queries_specials():
     assert result["app_name"] == "app-08"
     assert isinstance(result["top_queries"], list)
     assert len(result["top_queries"]) > 0
+
+
+def test_get_per_instance_breakout_specials():
+    """Closes Issue-PIB: the previous tool read the wrong key from the
+    metadata and silently returned an empty payload for every scenario.
+    Scenario 05 is the one that carries per-instance evidence; if this
+    test starts seeing [], the key-rename regressed."""
+    result = _call_tool("get_per_instance_breakout", {"app_name": "app-05"})
+    assert result["app_name"] == "app-05"
+    assert "per_instance_breakdown" in result
+    assert isinstance(result["per_instance_breakdown"], list)
+    assert len(result["per_instance_breakdown"]) > 0
+    record = result["per_instance_breakdown"][0]
+    assert "instance_id" in record
+    assert "cpu_band" in record
+
+
+def test_get_sla_target_extracted_from_business_context():
+    """Closes Issue-SLA: tool reads the flat sla_target_* fields from
+    business_context and returns them under a typed body. Old behaviour
+    returned {sla: null} for every scenario."""
+    result = _call_tool("get_sla_target", {"app_name": "app-08"})
+    assert result["app_name"] == "app-08"
+    assert "sla_target" in result
+    sla = result["sla_target"]
+    assert sla["p95_ms"] is not None
+    assert sla["availability_pct"] is not None
 
 
 def test_get_terraform_scenarios():

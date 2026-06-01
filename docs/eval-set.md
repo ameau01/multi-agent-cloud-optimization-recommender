@@ -165,7 +165,7 @@ Each layer catches a different failure mode. Collapsing them into a single pass/
 | Verify every gold passes the deterministic layers        | Run `pytest tests/integration/test_golden_answers.py -v`                |
 | Read the judge prompt                                    | [`src/evaluator/prompts/judge_richness.md`](../src/evaluator/prompts/)  |
 | Inspect a gold answer + its rubric (one composite file)  | [`eval-set/expectations/NN/raw_recommendation.json`](../eval-set/)      |
-| Read the composite Pydantic schema                       | [`src/composite/schema.py`](../src/composite/schema.py)                 |
+| Read the composite Pydantic schema                       | [`src/models/composite.py`](../src/models/composite.py)                 |
 | See what the input telemetry looks like                  | [`dataset-examples/scenario_NN/`](../dataset-examples/)                 |
 | Understand the architecture this feeds into              | [`README.md`](../README.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md)    |
 

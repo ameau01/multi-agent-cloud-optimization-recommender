@@ -14,8 +14,15 @@ load_dotenv()
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    # Imported only for type annotations on fixture return types. The
+    # runtime import happens inside `all_composites` because src/ may not
+    # be on sys.path until the bottom of this file.
+    from src.models.composite import Composite
 
 TESTS_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = TESTS_DIR.parent.parent
@@ -56,7 +63,7 @@ def mock_predictions_dir() -> Path:
 @pytest.fixture(scope="session")
 def all_composites(eval_set_dir: Path) -> dict[str, "Composite"]:
     """Load all 18 composites as Pydantic Composite models, keyed by sid."""
-    from src.composite import Composite
+    from src.models.composite import Composite
     out: dict[str, Composite] = {}
     for i in range(1, 19):
         sid = f"{i:02d}"

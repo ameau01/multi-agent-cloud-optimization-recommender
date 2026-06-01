@@ -15,7 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ..composite import Composite
+from ..models.composite import Composite
 from . import render_report, render_trace
 
 

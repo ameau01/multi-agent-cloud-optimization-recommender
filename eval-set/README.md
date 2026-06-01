@@ -25,7 +25,7 @@ Each `expectations/NN/raw_recommendation.json` is a composite: the
 top-level prediction fields are the gold answer, and the
 `scoring_metadata` block holds the per-scenario rubric the evaluator
 uses. The Pydantic schema lives at
-[`src/composite/schema.py`](../src/composite/schema.py).
+[`src/models/composite.py`](../src/models/composite.py).
 
 The 18 gold answers descend from the hand-crafted recommendations at
 [`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations).
@@ -38,7 +38,7 @@ the original flat-file shape and is one revision behind on naming.
 | Folder/file                                       | Role                                                          |
 |---------------------------------------------------|---------------------------------------------------------------|
 | `eval-set/expectations/NN/raw_recommendation.json`| Composite: gold answer (top-level) + rubric (scoring_metadata)|
-| `src/composite/schema.py`                         | Pydantic schema; defines the composite shape and validators.  |
+| `src/models/composite.py`                         | Pydantic schema; defines the composite shape and validators.  |
 | `src/evaluator/`                                  | Pure scoring code. Reads composites from here.                |
 | `src/evaluator/eval.py`                    | CLI entry point (`--app-name`, `--prediction`, `--no-judge`).       |
 | `src/evaluator/evaluator.py`               | `Evaluator` class for Python API use.                               |
@@ -50,7 +50,7 @@ the original flat-file shape and is one revision behind on naming.
 
 `src/evaluator/` is pure Python with no data files. `eval-set/` is pure
 data. The dependency runs one way: `src/evaluator/` reads composites
-from `eval-set/`, never the reverse. `src/composite/` is the schema
+from `eval-set/`, never the reverse. `src/models/` is the schema
 definition shared by both sides.
 
 ## App-name convention

@@ -23,6 +23,7 @@ Design notes:
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from statistics import mean
 
 
@@ -79,7 +80,7 @@ def summary_statistics(records: list[dict], metric: str) -> dict[str, float]:
     return percentiles(values, [50, 90, 95])
 
 
-def time_pattern(records: list[dict], metric: str) -> dict[str, dict]:
+def time_pattern(records: list[dict], metric: str) -> dict[str, Any]:
     """Group a metric series by hour-of-day and weekday, return mean per group.
 
     Returns:

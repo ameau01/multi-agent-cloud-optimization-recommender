@@ -31,7 +31,7 @@ sample_runs/
 ```
 
 Each `scenario_NN/raw_recommendation.json` is a full composite, validated
-against [`src/composite/schema.py`](../src/composite/schema.py). It is the
+against [`src/models/composite.py`](../src/models/composite.py). It is the
 source of truth. The `reports/scenario_NN_report.md` and
 `traces/scenario_NN_trace.json` files are derived: the renderer at
 [`src/renderer/`](../src/renderer/) produces them deterministically from

@@ -8,7 +8,6 @@ real eval-set/ folder; that's covered by tests/integration/.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 

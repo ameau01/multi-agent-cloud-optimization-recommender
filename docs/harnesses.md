@@ -25,7 +25,7 @@ The harnesses are layered, not nested. A single agent invocation may interact wi
 - **Record completeness.** Each non-empty tier array has the expected 1,344 records.
 - **Timestamp continuity.** Timestamps are monotonic, 15 minutes apart, no gaps or duplicates.
 - **Cross-tier alignment.** Timestamps align index-by-index across the tier arrays used in this bundle.
-- **Sidecar field presence.** Sidecar fields referenced by the read contract (top_queries for query scenarios, per_instance_imbalance for load-balancer scenarios) are present and non-empty.
+- **Sidecar field presence.** Sidecar fields referenced by the read contract (top_queries for query scenarios, per_instance_breakdown for load-balancer scenarios) are present and non-empty.
 - **Trigger legitimacy.** The review trigger is well-formed and identifies an application in scope.
 - **Terraform parseability.** The application's Terraform definition parses without error. Validation of correctness is out of scope.
 

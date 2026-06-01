@@ -159,7 +159,11 @@ class JudgeClient:
         self._prompt_template = prompt_path.read_text()
 
         # Lazy-import the SDK actually needed; keeps the dependency
-        # footprint thin if only one provider is installed.
+        # footprint thin if only one provider is installed. The client
+        # is typed as Any because the two SDKs (Anthropic, OpenAI) have
+        # no shared protocol mypy can narrow on. Per-provider call paths
+        # branch in _call_anthropic / _call_openai below.
+        self._client: Any
         if self._provider == "anthropic":
             from anthropic import Anthropic
             self._client = Anthropic(api_key=self._api_key)

@@ -1,26 +1,42 @@
 """Per-tier telemetry tools (6 tools, parameterized by tier + metric).
 
 Each tool is a thin wrapper: resolve app_name -> scenario, validate tier,
-hand the slice + metric to a `_stats` helper, return its result. All
-input validation and ToolError raising lives in `_common.py` so the
-catalog stays uniform.
+hand the slice + metric to a `_stats` helper, return the typed Pydantic
+response. All input validation and ToolError raising lives in
+`_common.py` so the catalog stays uniform.
 
 Per `docs/mcp-server.md`, these are the Tier Specialists' vocabulary.
 The Action Harness restricts which tier each specialist can pass via
 `scope.py` when it lands.
+
+Three responses adopt the envelope+body pattern with a nested body
+field (statistics, time_pattern, distribution). DetectThresholdBreachesResponse
+keeps its fields flat because they are semantically mixed (echoed
+inputs + derived count + list-as-body).
 """
 
 from __future__ import annotations
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from ...models.telemetry import (
+    DetectThresholdBreachesResponse,
+    GetConfigurationResponse,
+    GetMetricDistributionResponse,
+    GetSummaryStatisticsResponse,
+    GetTimePatternResponse,
+    GetTimeSeriesResponse,
+    MetricDistribution,
+    MetricStatistics,
+    TimePattern,
+)
 from .. import _stats
 from .._common import load_for_app, telemetry_records
 from ..server import mcp
 
 
 @mcp.tool()
-def get_time_series(app_name: str, tier: str, metric: str) -> dict:
+def get_time_series(app_name: str, tier: str, metric: str) -> GetTimeSeriesResponse:
     """Return the per-window values for one metric on one tier.
 
     The full timeseries: one entry per 15-minute window, in chronological
@@ -41,15 +57,21 @@ def get_time_series(app_name: str, tier: str, metric: str) -> dict:
             f"for {app_name}. Available metrics include: "
             f"{', '.join(k for k in records[0].keys() if k != 'timestamp')}"
         )
-    return {"app_name": app_name, "tier": tier, "metric": metric, "series": out}
+    # model_validate so mypy sees the dict-to-TimeSeriesPoint coercion;
+    # Pydantic handles the per-item validation at runtime.
+    return GetTimeSeriesResponse.model_validate({
+        "app_name": app_name, "tier": tier, "metric": metric, "series": out,
+    })
 
 
 @mcp.tool()
-def get_summary_statistics(app_name: str, tier: str, metric: str) -> dict:
+def get_summary_statistics(
+    app_name: str, tier: str, metric: str,
+) -> GetSummaryStatisticsResponse:
     """Return p50, p90, p95, and mean for one metric on one tier.
 
     The default-issue summary the specialists ask first to see if a tier
-    is healthy. Returns {"p50": ..., "p90": ..., "p95": ..., "mean": ...}.
+    is healthy. The four percentiles travel together under `statistics`.
     """
     scenario = load_for_app(app_name)
     records = telemetry_records(scenario, tier)
@@ -57,11 +79,16 @@ def get_summary_statistics(app_name: str, tier: str, metric: str) -> dict:
         stats = _stats.summary_statistics(records, metric)
     except ValueError as e:
         raise ToolError(f"unknown_metric: {e}")
-    return {"app_name": app_name, "tier": tier, "metric": metric, **stats}
+    return GetSummaryStatisticsResponse(
+        app_name=app_name, tier=tier, metric=metric,
+        statistics=MetricStatistics.model_validate(stats),
+    )
 
 
 @mcp.tool()
-def get_time_pattern(app_name: str, tier: str, metric: str) -> dict:
+def get_time_pattern(
+    app_name: str, tier: str, metric: str,
+) -> GetTimePatternResponse:
     """Return the hour-of-day and weekday breakdown of one metric.
 
     For each hour 0..23 and weekday 0..6 (Mon..Sun) returns the mean of
@@ -76,7 +103,10 @@ def get_time_pattern(app_name: str, tier: str, metric: str) -> dict:
         pattern = _stats.time_pattern(records, metric)
     except ValueError as e:
         raise ToolError(f"unknown_metric: {e}")
-    return {"app_name": app_name, "tier": tier, "metric": metric, **pattern}
+    return GetTimePatternResponse(
+        app_name=app_name, tier=tier, metric=metric,
+        time_pattern=TimePattern.model_validate(pattern),
+    )
 
 
 @mcp.tool()
@@ -86,7 +116,7 @@ def detect_threshold_breaches(
     metric: str,
     threshold: float,
     comparator: str = "gt",
-) -> dict:
+) -> DetectThresholdBreachesResponse:
     """Return the windows where a metric breaches the caller-supplied threshold.
 
     Args:
@@ -97,22 +127,25 @@ def detect_threshold_breaches(
           from the SLA target via `get_sla_target`).
       comparator: 'gt' (default; value > threshold) or 'lt'.
 
-    Returns the list of breaching windows plus a count.
+    Returns the list of breaching windows plus a count. The response
+    keeps a flat shape on purpose: threshold + comparator are echoed
+    inputs, breach_count is derived, breaches is the body-as-list.
     """
     scenario = load_for_app(app_name)
     records = telemetry_records(scenario, tier)
     try:
         breaches = _stats.find_breaches(records, metric, threshold, comparator)
     except ValueError as e:
-        # Both 'unknown_metric' and 'invalid comparator' surface here.
         msg = str(e)
         code = "invalid_input" if "comparator" in msg else "unknown_metric"
         raise ToolError(f"{code}: {msg}")
-    return {
+    # model_validate so mypy sees the dict-to-ThresholdBreach coercion
+    # on the breaches list; Pydantic validates each record at runtime.
+    return DetectThresholdBreachesResponse.model_validate({
         "app_name": app_name, "tier": tier, "metric": metric,
         "threshold": threshold, "comparator": comparator,
         "breach_count": len(breaches), "breaches": breaches,
-    }
+    })
 
 
 @mcp.tool()
@@ -121,7 +154,7 @@ def get_metric_distribution(
     tier: str,
     metric: str,
     n_bins: int = 10,
-) -> dict:
+) -> GetMetricDistributionResponse:
     """Return a histogram of the metric's values across all records.
 
     Bins are uniform-width over [min, max]. Use to see whether a metric
@@ -135,16 +168,19 @@ def get_metric_distribution(
         msg = str(e)
         code = "invalid_input" if "n_bins" in msg else "unknown_metric"
         raise ToolError(f"{code}: {msg}")
-    return {"app_name": app_name, "tier": tier, "metric": metric, **dist}
+    return GetMetricDistributionResponse(
+        app_name=app_name, tier=tier, metric=metric,
+        distribution=MetricDistribution.model_validate(dist),
+    )
 
 
 @mcp.tool()
-def get_configuration(app_name: str, tier: str) -> dict:
+def get_configuration(app_name: str, tier: str) -> GetConfigurationResponse:
     """Return the parsed configuration for one tier (instance class, count, etc.).
 
     Reads from metadata.tier_topology[tier]. Returns the dict as-is; the
     keys vary per tier (compute has scaling policy, database has replicas,
-    etc.). Returns None for a tier that isn't present in this scenario.
+    etc.). Raises unknown_tier when the tier isn't present.
     """
     scenario = load_for_app(app_name)
     topology = scenario.get("metadata", {}).get("tier_topology", {})
@@ -153,4 +189,6 @@ def get_configuration(app_name: str, tier: str) -> dict:
             f"unknown_tier: tier {tier!r} is not present in tier_topology "
             f"for {app_name}. Known tiers: {sorted(topology.keys())}"
         )
-    return {"app_name": app_name, "tier": tier, "configuration": topology[tier]}
+    return GetConfigurationResponse(
+        app_name=app_name, tier=tier, configuration=topology[tier],
+    )

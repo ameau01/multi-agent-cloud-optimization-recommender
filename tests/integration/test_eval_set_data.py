@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from src.composite import Composite
+from src.models.composite import Composite
 # Single source of truth for the enum universes. See src/evaluator/enums.py.
 # - FINDING_TYPES includes 'insufficient_data' (forward-compatible; not yet
 #   used in any gold), so for dataset validation we use the subset that the
@@ -29,7 +29,6 @@ from src.composite import Composite
 from src.evaluator.enums import (
     FINDING_TYPES,
     PRIMARY_TIERS,
-    SECONDARY_TIERS,
     ACTION_CATEGORIES,
 )
 from src.evaluator.rules import validate_rules

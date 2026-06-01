@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from src.composite import Composite
+from src.models.composite import Composite
 from src.renderer import render_report, render_trace
 
 

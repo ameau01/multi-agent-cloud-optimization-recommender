@@ -85,7 +85,30 @@ A separate surface, deliberately kept off every specialist's toolset.
 
 Keeping the gold answer off every specialist surface is a scope guarantee, not a convenience. A specialist that could read `get_handcrafted_recommendation` could reason backward from the target, and the evaluation would no longer mean anything. For the same reason `get_terraform` belongs to the System Mapper, whose job is to parse it, and `get_correlation_evidence` belongs to the Evaluator, the only agent that reasons across tiers.
 
-Tools return JSON. Inputs are simple types, strings and optional integers. There is no streaming, no callbacks, and no agent state on the server.
+Tool responses are Pydantic models defined in `src/models/telemetry.py` (and `src/models/composite.py` for the gold-answer tool). FastMCP serializes each response to JSON for the wire and publishes its JSON Schema as the tool's `outputSchema`, which is what MCP Inspector and Claude Desktop render in their tool descriptions. Every one of the eighteen tools is fully typed. Inputs are simple types, strings and optional integers. There is no streaming, no callbacks, and no agent state on the server.
+
+The response classes share a three-level base so the envelope is uniform: `AppResponse` (carries `app_name`), `TierResponse` (adds `tier`), `TierMetricResponse` (adds `metric`). The hierarchy:
+
+```
+BaseModel
+├── ListScenariosResponse
+└── AppResponse  { app_name }
+    ├── (context, specials, scenario tools — 10 of them)
+    └── TierResponse  { tier }
+        ├── GetConfigurationResponse
+        └── TierMetricResponse  { metric }
+            └── (5 per-tier telemetry tools)
+```
+
+Responses with a coherent body bundle that field separately as a named sub-model: `get_summary_statistics` returns `statistics: MetricStatistics`, `get_time_pattern` returns `time_pattern: TimePattern`, `get_metric_distribution` returns `distribution: MetricDistribution`, and the three context tools (`get_business_context`, `get_monthly_cost`, `get_before_after_evidence`) follow the same shape. Responses whose fields are semantically mixed stay flat: `detect_threshold_breaches` keeps `threshold`, `comparator`, `breach_count`, and `breaches` at the root because the first two are echoed inputs and forcing a wrapper would bundle things that don't belong together.
+
+### Future extractions, deferred
+
+Three abstractions were considered during the schema refactor and intentionally not built. Recording the reasoning so the next reviewer doesn't re-litigate it.
+
+- **Generic `TimestampedValue` merging `TimeSeriesPoint` and `ThresholdBreach`** was rejected. A time-series point's value can be `None` (no observation in that window); a threshold breach's value cannot be `None` by definition. Merging them into one record would mis-document the breach as nullable. Two five-line classes carry the semantic distinction cleanly.
+- **Normalizing `DetectThresholdBreachesResponse` into an envelope + body** was rejected. Its fields are heterogeneous: `threshold` and `comparator` are echoed inputs, `breach_count` is derived, `breaches` is the natural body. Forcing a `breach_report: {...}` wrapper would bundle echoed inputs with derived state and force the agent to navigate two semantic levels for no gain.
+- **Generic `TierBuckets[T]` replacing `CostByTier`** was deferred. The four-tier name set (`compute`, `database`, `cache`, `network`) appears in `CostByTier`, in `metadata.tier_topology`, and in `scope.ALLOWED_TIERS`, but each occurrence carries a different value type. There is no second numeric-only per-tier breakdown today. The abstraction would create a second source of truth for the tier set. Revisit when a second numeric per-tier consumer exists.
 
 ## How agents inside this project call it
 
@@ -94,7 +117,8 @@ Tier Specialists run ReAct loops. Each step is a thought, then an action, then a
 ```
 Thought:  Is CPU utilization below healthy ranges?
 Action:   get_summary_statistics(app_name='app-01', tier='compute', metric='cpu_p95')
-Observation: {p50: 18.4, p90: 24.7, p95: 27.1, mean: 19.2}
+Observation: {app_name: 'app-01', tier: 'compute', metric: 'cpu_p95',
+              statistics: {p50: 18.4, p90: 24.7, p95: 27.1, mean: 19.2}}
 ```
 
 Two harnesses sit between the specialist and the server. The Action Harness checks that the tool is on the contract and that the tier matches the specialist's bounded scope; an out-of-scope call is rejected here. The Reasoning Harness logs the observation to the audit trail with a reference the specialist can later cite as evidence.
