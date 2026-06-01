@@ -1,7 +1,7 @@
 name: CI
 
 on:
-  workflow_dispatch:   # ← This makes it run only when you manually trigger it
+  workflow_dispatch:  # Run only when manually triggered
 
 jobs:
   test:
