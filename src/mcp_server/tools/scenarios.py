@@ -19,8 +19,10 @@ def list_scenarios() -> dict:
     asking for any specific scenario.
     """
     # Import inside the function so test stubs that monkey-patch
-    # data_loader take effect.
-    from ..data_loader import list_scenario_ids
+    # data_loader take effect. Three dots because tools/scenarios.py
+    # lives at src.mcp_server.tools.scenarios; `...data_loader` walks
+    # up to src.data_loader (the project's data loader).
+    from ...data_loader import list_scenario_ids
     sids = list_scenario_ids()
     return {"app_names": [f"app-{sid}" for sid in sids]}
 
