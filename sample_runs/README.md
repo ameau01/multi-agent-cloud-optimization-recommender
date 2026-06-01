@@ -12,15 +12,41 @@ For the four-layer evaluator that scores these outputs, see
 
 ```
 sample_runs/
-├── reports/                              3 human-facing recommendation reports
+├── scenario_02/
+│   └── raw_recommendation.json           full composite: gold + scoring_metadata
+│                                         + trace + report_content + _provenance
+├── scenario_07/
+│   └── raw_recommendation.json
+├── scenario_08/
+│   └── raw_recommendation.json
+├── reports/                              3 markdown reports rendered from the composites
 │   ├── scenario_02_report.md             single-tier (compute / scaling_policy_change)
 │   ├── scenario_07_report.md             cross-tier (cache -> database / cache_capacity_adjustment)
 │   └── scenario_08_report.md             cross-tier (database -> compute / query_cache_optimization)
-├── traces/                               3 audit trails matching the reports
+├── traces/                               3 audit trails rendered from the composites
 │   ├── scenario_02_trace.json
 │   ├── scenario_07_trace.json
 │   └── scenario_08_trace.json
 └── README.md                             (this file)
+```
+
+Each `scenario_NN/raw_recommendation.json` is a full composite, validated
+against [`src/composite/schema.py`](../src/composite/schema.py). It is the
+source of truth. The `reports/scenario_NN_report.md` and
+`traces/scenario_NN_trace.json` files are derived: the renderer at
+[`src/renderer/`](../src/renderer/) produces them deterministically from
+the composite. A CI test
+([`tests/integration/test_renderer.py`](../tests/integration/test_renderer.py))
+asserts they stay in sync — if a composite is edited without re-rendering,
+or vice versa, the test fails loud.
+
+To regenerate the rendered files after editing a composite:
+
+```bash
+uv run python -m src.renderer \
+    --composite sample_runs/scenario_08/raw_recommendation.json \
+    --out-report sample_runs/reports/scenario_08_report.md \
+    --out-trace  sample_runs/traces/scenario_08_trace.json
 ```
 
 The three picks match the three scenarios vendored in
@@ -54,7 +80,8 @@ For the full short-circuit story, see
   These are deliberately-degraded JSON predictions used by
   `test_edge_cases.py` to prove the evaluator's discrimination logic.
 - **Trace-verification utility** lives at
-  [`scripts/verify_trace.py`](../scripts/verify_trace.py).
+  [`scripts/verify_trace.sh`](../scripts/verify_trace.sh) (a bash wrapper
+  around [`tests/verify_trace.py`](../tests/verify_trace.py)).
 
 This folder now holds only the human-readable artifacts. The machinery
 that exercises and verifies the evaluator lives in `tests/` and
@@ -89,7 +116,7 @@ traceability contract.
 The Action Harness enforces this contract at gate time. A report with
 dangling references would fail the gate and not surface.
 
-Run `python scripts/verify_trace.py` to confirm every parent reference
+Run `scripts/verify_trace.sh` to confirm every parent reference
 in every trace resolves. The script discovers every
 `scenario_NN_trace.json` under `sample_runs/traces/`, walks each one
 backward, and exits non-zero if any pointer in any trace is dangling.

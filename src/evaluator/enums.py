@@ -2,14 +2,15 @@
 
 Every value an agent can produce for finding_type, primary_tier,
 secondary_tier, or action_category must be in one of the frozensets below.
-Per-scenario scoring rules (eval-set/scoring_rules/NN/rules.json) narrow
-these universes to single values, but their allowed lists must contain
-only values defined here.
+Per-scenario scoring rules (the `scoring_metadata` block inside
+eval-set/expectations/NN/raw_recommendation.json) narrow these universes
+to single values, but their allowed lists must contain only values
+defined here.
 
 When adding a new enum value:
   1. Add it to the appropriate frozenset below.
   2. Update docs/eval-set.md's "Enum reference" table.
-  3. Update any scoring_rules/NN/rules.json files that should use it.
+  3. Update any composite scoring_metadata that should use it.
   4. The rules-validator test in tests/integration/ will catch drift.
 
 NO_ACTION_FINDINGS is the sentinel set used by the short-circuit rule in

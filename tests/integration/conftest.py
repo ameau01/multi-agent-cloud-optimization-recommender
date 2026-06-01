@@ -32,14 +32,11 @@ def project_root() -> Path:
 
 @pytest.fixture(scope="session")
 def eval_set_dir() -> Path:
-    """Gold-answers folder."""
+    """Expectations folder. Each NN/ subfolder holds a composite
+    raw_recommendation.json that carries both the gold answer and the
+    scoring rubric for that scenario.
+    """
     return EVAL_SET_DIR / "expectations"
-
-
-@pytest.fixture(scope="session")
-def evaluator_expectations_dir() -> Path:
-    """Scoring-rules folder. Named for back-compat with the test code."""
-    return EVAL_SET_DIR / "scoring_rules"
 
 
 @pytest.fixture(scope="session")
@@ -57,23 +54,31 @@ def mock_predictions_dir() -> Path:
 # Data fixtures
 # ============================================================
 @pytest.fixture(scope="session")
-def all_gold_answers(eval_set_dir: Path) -> dict[str, dict]:
-    """Load all 18 gold answers from eval-set/expectations/NN.json."""
-    return {
-        f"{i:02d}": json.loads((eval_set_dir / f"{i:02d}.json").read_text())
-        for i in range(1, 19)
-    }
+def all_composites(eval_set_dir: Path) -> dict[str, "Composite"]:
+    """Load all 18 composites as Pydantic Composite models, keyed by sid."""
+    from src.composite import Composite
+    out: dict[str, Composite] = {}
+    for i in range(1, 19):
+        sid = f"{i:02d}"
+        p = eval_set_dir / sid / "raw_recommendation.json"
+        out[sid] = Composite.model_validate_json(p.read_text())
+    return out
 
 
 @pytest.fixture(scope="session")
-def all_evaluator_expectations(evaluator_expectations_dir: Path) -> dict[str, dict]:
-    """Load all 18 per-scenario scoring rules."""
-    return {
-        f"{i:02d}": json.loads(
-            (evaluator_expectations_dir / f"{i:02d}" / "rules.json").read_text()
-        )
-        for i in range(1, 19)
-    }
+def all_gold_answers(all_composites: dict) -> dict[str, dict]:
+    """Per-scenario gold answer derived from the composite (flat dict shape
+    matching the legacy eval-set/expectations/NN.json contract).
+    """
+    return {sid: c.to_gold_dict() for sid, c in all_composites.items()}
+
+
+@pytest.fixture(scope="session")
+def all_evaluator_expectations(all_composites: dict) -> dict[str, dict]:
+    """Per-scenario scoring rules derived from the composite (flat dict
+    shape matching the legacy scoring_rules/NN/rules.json contract).
+    """
+    return {sid: c.to_rules_dict() for sid, c in all_composites.items()}
 
 
 @pytest.fixture(scope="session")

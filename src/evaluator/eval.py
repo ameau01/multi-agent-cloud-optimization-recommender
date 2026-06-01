@@ -17,7 +17,7 @@ pin a specific model name.
 
 App-name convention. The CLI uses `app-NN` to match the MCP server's
 naming (see docs/mcp-server.md). Internally, app-NN maps to the
-two-digit scenario id NN used in eval-set/scoring_rules/.
+two-digit scenario id NN used in eval-set/expectations/NN/.
 
 Bulk scoring (all 18 apps at once) is not exposed through this CLI.
 For that, use eval-set/demo_scoring.py or run pytest against

@@ -1,0 +1,446 @@
+{
+  "schema_version": "1.0",
+  "scenario_id": "02",
+  "finding_type": "issue_found",
+  "primary_tier": "compute",
+  "action_category": "scaling_policy_change",
+  "specific_change": "Replace the fixed 6 x m5.large fleet with a scheduled auto-scaling\ngroup: 3 instances off-peak (weekday nights and weekends), 6 instances\nduring weekday daytime, 9 instances during the two predictable spike\nwindows (weekdays 09:45-11:15 and 14:45-16:15 UTC). Layer a\ntarget-tracking policy (CPU target 50%) on top as a reactive safety net.",
+  "conclusion": {
+    "finding_type": "issue_found",
+    "primary_tier": "compute",
+    "action_category": "scaling_policy_change",
+    "headline": "Add scheduled auto-scaling for weekday spike windows to fix SLA breaches and save ~48%"
+  },
+  "evidence": {
+    "telemetry_observations": [
+      "CPU p95 median is 33.9% but spikes to 95.9% max, with p95-of-p95 at 91.2%.",
+      "Application p95 latency median is 194.8ms but max reaches 572.4ms, breaching the 300ms SLA target.",
+      "Application p95 latency p95 is 487.5ms — well above the 300ms SLA threshold.",
+      "CPU p95 stddev of 14.1% indicates high variance consistent with periodic spike patterns.",
+      "Memory p95 stays moderate (max 71.8%), confirming CPU is the bottleneck, not memory.",
+      "Network in/out p95 max (~214-216 Mbps) correlates with CPU spikes, confirming traffic-driven load."
+    ],
+    "infrastructure_context": [
+      "Fleet is 6× m5.large with no auto-scaling policy — purely fixed capacity.",
+      "Terraform defines raw aws_instance resources with no ASG, no scaling policies, no CloudWatch alarms.",
+      "Single-tier compute-only topology at $5,200/month with no database, cache, or network tiers."
+    ],
+    "correlation_observations": []
+  },
+  "reasoning": "The telemetry shows a fleet that is comfortable at baseline (CPU p50 ~29%, latency p50 ~195ms) but catastrophically under-provisioned during spike windows — CPU hits 95.9% and latency reaches 572ms, breaching the 300ms SLA. The high stddev on CPU p95 (14.1%) and latency (78.5ms) with a bimodal distribution strongly suggests predictable daily spikes rather than random load. Because the spikes are periodic and predictable (weekday mid-morning and mid-afternoon traffic bursts typical of checkout services), scheduled scaling will absorb them proactively — reactive auto-scaling would lag by 5-10 minutes and miss the spike onset. Reducing baseline capacity to 3 instances during off-peak hours captures significant savings while the burst to 9 instances during spike windows provides the headroom needed to keep CPU below 65% and latency under 300ms.",
+  "projected_state": {
+    "cpu_p95_pct_estimate": "55-65%",
+    "memory_p95_pct_estimate": "45-55%",
+    "latency_p95_ms_estimate": "200-280",
+    "sla_availability_preserved": true,
+    "notes": "During spike windows, 9 instances provide 50% more capacity than the current 6, bringing peak CPU from ~96% down to ~60-65%. Off-peak with 3 instances, baseline CPU ~34% × 2 = ~58-68% which remains safe given low off-peak variance."
+  },
+  "cost_impact": {
+    "current_monthly_usd": 5200.0,
+    "projected_monthly_usd": 2704.0,
+    "savings_monthly_usd": 2496.0,
+    "savings_pct": 48.0,
+    "notes": "Current: 6 × m5.large × 730 hrs = $5,200/mo. Projected weighted average: off-peak (weekday nights 11h × 22d + weekends 48h × 4.3w ≈ 449 hrs) at 3 instances, weekday daytime non-spike (~7.5h × 22d = 165 hrs) at 6 instances, spike windows (~2.5h × 22d = 55 hrs) at 9 instances. Blended ~3.7 avg instances × $0.096/hr × 730 ≈ $2,704/mo, saving ~$2,496/mo (48%)."
+  },
+  "risk_assessment": {
+    "primary_risk": "Spike timing may shift seasonally or due to marketing campaigns, causing the scheduled scale-out to miss actual demand peaks and trigger SLA breaches.",
+    "mitigation": "Layer a target-tracking auto-scaling policy (CPU target 50%) on top of the scheduled actions as a reactive safety net. Set CloudWatch alarms on p95 latency > 250ms and CPU > 70% to alert before SLA breach. Review spike timing monthly using CloudWatch Insights.",
+    "rollback": "Revert the ASG desired capacity to a fixed 6 instances and disable scheduled actions. The launch template remains unchanged, so rollback is a single ASG parameter update deployable in under 2 minutes.",
+    "notes": "Off-peak reduction to 3 instances carries moderate risk if unexpected traffic arrives outside spike windows. The target-tracking policy mitigates this but may take 5-7 minutes to react. Consider starting with a 4-instance off-peak baseline for the first two weeks to validate."
+  },
+  "scoring_metadata": {
+    "description": "Compute fleet with predictable daily peak windows, agent should recommend scheduled/predictive scaling, not raw rightsizing. Compute scaling policy change. Single canonical category.",
+    "finding_type_allowed": [
+      "issue_found"
+    ],
+    "primary_tier_allowed": [
+      "compute"
+    ],
+    "secondary_tier_allowed": [
+      null
+    ],
+    "action_category_allowed": [
+      "scaling_policy_change"
+    ]
+  },
+  "trace": {
+    "review": {
+      "review_id": "rev_b7c3d4e1",
+      "scenario_id": "02",
+      "trigger": {
+        "trigger_type": "on_demand",
+        "triggered_at": "2026-05-29T15:30:00Z",
+        "triggered_by": "alex.meau"
+      },
+      "input_bundle": {
+        "bundle_hash": "sha256:c4f2a9...e7",
+        "input_files": [
+          "metadata.json",
+          "main.tf",
+          "compute_telemetry.json",
+          "database_telemetry.json",
+          "cache_telemetry.json",
+          "network_telemetry.json",
+          "correlation_evidence.json"
+        ]
+      },
+      "outcome": "issue_found",
+      "completed_at": "2026-05-29T15:30:31Z",
+      "wall_clock_seconds": 31
+    },
+    "input_harness_validation": {
+      "step_id": "ih_001",
+      "bundle_well_formed": true,
+      "schema_conformance": "all tiers conform",
+      "record_completeness": "1344 records per tier",
+      "timestamp_continuity": "monotonic, 15min spacing, no gaps",
+      "cross_tier_alignment": "index-aligned across tier arrays",
+      "terraform_parseable": true,
+      "verdict": "pass"
+    },
+    "system_mapper": {
+      "step_id": "sm_001",
+      "input": "Terraform main.tf",
+      "output": {
+        "tiers_present": [
+          "compute"
+        ],
+        "tiers_relevant": [
+          "compute"
+        ],
+        "dependency_graph": {
+          "compute": "aws_instance.app (6 instances, no ASG)"
+        },
+        "analysis_plan": {
+          "specialists_to_invoke": [
+            "compute_analyst"
+          ],
+          "cross_tier_pairs": [],
+          "rationale": "Single-tier topology. No database, cache, or network tier in Terraform. No cross-tier reasoning needed."
+        }
+      },
+      "duration_ms": 320
+    },
+    "supervisor_decision": {
+      "step_id": "sup_001",
+      "input": "analysis_plan from system_mapper",
+      "output": {
+        "specialists_invoked": [
+          "compute_analyst"
+        ],
+        "invocation_mode": "single"
+      },
+      "duration_ms": 40
+    },
+    "specialist_findings": [
+      {
+        "step_id": "spc_comp_001",
+        "specialist": "compute_analyst",
+        "react_steps": [
+          {
+            "step_id": "rs_comp_001",
+            "thought": "Is CPU utilization elevated and how stable is the distribution?",
+            "action": "summary_statistics(tier='compute', metric='cpu_p95')",
+            "observation_id": "obs_comp_001",
+            "observation": {
+              "p50": 33.9,
+              "p90": 78.0,
+              "p95": 91.2,
+              "mean": 38.0,
+              "windowed_max": 95.9,
+              "stddev": 14.1
+            }
+          },
+          {
+            "step_id": "rs_comp_002",
+            "thought": "High p95 with high variance. Is the spike pattern time-aligned?",
+            "action": "get_time_pattern(tier='compute', metric='cpu_p95')",
+            "observation_id": "obs_comp_002",
+            "observation": {
+              "baseline_cpu_p95": 34,
+              "peak_windows": [
+                {
+                  "day_of_week": "weekday",
+                  "window_utc": "09:45-11:15",
+                  "cpu_p95": 91,
+                  "occurrences": 11
+                },
+                {
+                  "day_of_week": "weekday",
+                  "window_utc": "14:45-16:15",
+                  "cpu_p95": 89,
+                  "occurrences": 11
+                }
+              ],
+              "pattern": "predictable_daily_spikes"
+            }
+          },
+          {
+            "step_id": "rs_comp_003",
+            "thought": "Spikes are predictable. Is application latency breaching SLA during these windows?",
+            "action": "summary_statistics(tier='compute', metric='application_p95_latency_ms')",
+            "observation_id": "obs_comp_003",
+            "observation": {
+              "p50": 194.8,
+              "p90": 380.0,
+              "p95": 487.5,
+              "mean": 230.0,
+              "windowed_max": 572.4,
+              "sla_threshold_ms": 300
+            }
+          },
+          {
+            "step_id": "rs_comp_004",
+            "thought": "SLA breached. Is the fleet auto-scaling, or fixed?",
+            "action": "get_infrastructure_context(resource='compute')",
+            "observation_id": "obs_comp_004",
+            "observation": {
+              "fleet": "6 x m5.large",
+              "scaling_policy": "none",
+              "terraform_resource": "aws_instance",
+              "asg_present": false,
+              "monthly_cost_usd": 5200
+            }
+          }
+        ],
+        "finding": {
+          "finding_type": "issue_found",
+          "primary_observation": "Fixed 6-instance fleet, no ASG. CPU spikes to 96% in two predictable daily weekday windows (09:45-11:15 and 14:45-16:15 UTC); p95 latency reaches 572ms versus the 300ms SLA target.",
+          "evidence_refs": [
+            "obs_comp_001",
+            "obs_comp_002",
+            "obs_comp_003",
+            "obs_comp_004"
+          ],
+          "confidence": "high"
+        },
+        "duration_ms": 9800
+      }
+    ],
+    "evaluator_records": {
+      "step_id": "eval_001",
+      "drift_check": [
+        {
+          "specialist": "compute_analyst",
+          "target_finding_id": "spc_comp_001",
+          "verdict": "tight",
+          "rationale": "Evidence chain resolves cleanly to obs_comp_001 through obs_comp_004. The pattern observation (obs_comp_002) directly supports the recommendation for scheduled scaling rather than reactive scaling."
+        }
+      ],
+      "cross_tier_interactions": [],
+      "synthesis": {
+        "synthesis_id": "syn_001",
+        "contributing_findings": [
+          "spc_comp_001"
+        ],
+        "finding_type": "issue_found",
+        "primary_tier": "compute",
+        "secondary_tier": null,
+        "action_category": "scaling_policy_change",
+        "trade_off_scores": {
+          "cost": "savings of ~$2,496/month (48% reduction; blended 3.7 average instances vs current 6)",
+          "performance": "p95 latency from 572ms peak to 200-280ms estimated; peak CPU from 96% to 65%",
+          "reliability": "SLA target (p95 < 300ms) restored during spike windows",
+          "risk": "low to moderate (spike timing may shift; target-tracking safety net mitigates)"
+        },
+        "evidence_refs": [
+          "obs_comp_001",
+          "obs_comp_002",
+          "obs_comp_003",
+          "obs_comp_004"
+        ],
+        "evaluator_confidence": "high"
+      },
+      "duration_ms": 6800
+    },
+    "action_harness_gate": {
+      "step_id": "ah_001",
+      "gate_id": "ah_001",
+      "evaluator_id": "eval_001",
+      "synthesis_id": "syn_001",
+      "checks": [
+        {
+          "check": "well_formedness",
+          "verdict": "pass"
+        },
+        {
+          "check": "evidence_completeness",
+          "verdict": "pass",
+          "verified_refs": [
+            "obs_comp_001",
+            "obs_comp_002",
+            "obs_comp_003",
+            "obs_comp_004"
+          ]
+        },
+        {
+          "check": "severity_calibration",
+          "verdict": "pass"
+        },
+        {
+          "check": "duplication_against_recent_reviews",
+          "verdict": "pass"
+        }
+      ],
+      "verdict": "pass",
+      "duration_ms": 180
+    },
+    "review_packet": {
+      "packet_id": "pkt_b7c3d4e1_01",
+      "gate_id": "ah_001",
+      "synthesis_id": "syn_001",
+      "review_id": "rev_b7c3d4e1",
+      "rendered_at": "2026-05-29T15:30:31Z",
+      "rendered_to": "sample_runs/reports/scenario_02_report.md",
+      "evidence_chain_length": 6,
+      "audit_walk_starting_point": "review.review_id = rev_b7c3d4e1"
+    },
+    "hitl_decision": {
+      "_note": "HITL state is filled in after a human reviewer takes action. Empty here because the system just produced the report."
+    }
+  },
+  "report_content": {
+    "scenario_name": "Spiky Compute Load",
+    "analysis_date": "2026-05-29 (illustrative)",
+    "status_line": "Sample output (agent system v0.1, runtime not yet implemented)",
+    "report_banner": {
+      "what_is_real_in_report": "**What's real in this report.** The diagnostic content, the\nfinding type, tier assignment, action category, telemetry observation\nvalues, time-pattern detection, infrastructure context, and trade-off\nscores come from real data in the published dataset for scenario 02.\nWhen the agents run, they will produce equivalent content from the\nsame sources.",
+      "what_is_illustrative": "**What's illustrative.** Timestamps, durations, the `review_id`, the\nbundle hash, drift-check verdicts, and the Action Harness gate\nverdict are placeholders. Those values come from a real review only\nafter the agent system runs (Phase 7 in `CHANGELOG.md`).",
+      "what_is_verifiable_today": "**What's verifiable today.** Trace structure and the traceability\ncontract. Run `scripts/verify_trace.sh` to confirm every\nreference in the companion trace JSON resolves."
+    },
+    "final_recommendation_rows": [
+      {
+        "field": "Finding type",
+        "value": "`issue_found`"
+      },
+      {
+        "field": "Primary tier",
+        "value": "`compute`"
+      },
+      {
+        "field": "Secondary tier",
+        "value": "none (single-tier topology)"
+      },
+      {
+        "field": "Action category",
+        "value": "`scaling_policy_change`"
+      },
+      {
+        "field": "Cost impact",
+        "value": "-$2,496 / month (48% savings)"
+      },
+      {
+        "field": "Performance",
+        "value": "Application p95 latency: 572 ms peak -> 200-280 ms estimated"
+      },
+      {
+        "field": "SLA impact",
+        "value": "99.9% target preserved during spike windows"
+      }
+    ],
+    "summary": "A compute-only deployment is comfortable at baseline (CPU p50 around\n34%) but catastrophically under-provisioned during two predictable\ndaily spike windows on weekdays. The spikes hold on 11 of 14 observed\ndays, with peak CPU at 96% and application p95 latency at 572 ms,\nbreaching the 300 ms SLA target.\n\nThe pattern is periodic and well-aligned with checkout-traffic\ntiming, which makes it addressable by scheduled scaling. Reactive\nauto-scaling alone would lag the spike onset by 5 to 10 minutes and\nmiss the early burst.",
+    "cross_tier_analysis": "**Drift-check.** The single specialist finding is tight. The\ntime-pattern observation (`obs_comp_002`) directly supports the\nrecommendation for scheduled scaling rather than reactive scaling.\n\n**Cross-tier interactions.** None. `correlation_evidence.json` is\nempty for scenario 02 because no other tier is present to correlate\nagainst. The Evaluator records this as an empty\n`cross_tier_interactions` array rather than skipping the step, so\ndownstream consumers can distinguish \"no interactions found\" from \"no\ninteractions checked.\"\n\n**Conflict resolution.** Not applicable; only one specialist produced\na finding.",
+    "evaluator_confidence": "**High.** Drift-check tight on the single specialist. The time-pattern\nsignal (`obs_comp_002`) is the load-bearing observation: it converts a\n\"CPU is sometimes high\" claim into a \"CPU spikes are scheduled and\npredictable\" claim, which is what licenses scheduled scaling as the\nright tool. The recommendation follows standard ASG patterns with\nwell-understood trade-offs.",
+    "how_to_verify": "This report is the human-readable summary of the review. The full\naudit trail is `sample_runs/traces/scenario_02_trace.json`.\n\nThe traceability contract:\n\n- **Each claim in the report carries an evidence_ref ID** (visible\n  in the Specialist findings and Evidence anchors tables).\n- **Every ID resolves to a specific logged observation** in the trace\n  JSON. The resolution is a lookup, not an inference.\n- **The trace records each ReAct step**: thought, action, observation,\n  observation_id. A reviewer can walk from any cited ID back to the\n  tool call that produced it.\n\n**Today (Phase pre-7):** `scripts/verify_trace.sh` runs the\nverification externally. It walks every trace under `sample_runs/traces/`\nand confirms each parent reference resolves. Exits non-zero if any\npointer is dangling.\n\n**At Phase 7 (agent system implemented):** the Action Harness's\n`evidence_completeness` check runs the same logic at gate time on every\nlive review. The `action_harness_gate.checks[1].verified_refs` field in\nthe trace is what carries the result. A dangling reference would fail\nthe gate and the report would not be surfaced for review.\n\nSame contract, two enforcement points. `scripts/verify_trace.sh` is the\ntoday-substitute; the gate is the runtime check that follows when the\nagents land.",
+    "replayability": "The trace is structured so a reviewer can walk forward or backward\nthrough the chain without inference:\n\n- **Backward walk** from `review_packet` -> `gate` -> `synthesis` ->\n  `drift_checks` -> `specialist_findings` -> `react_steps` ->\n  `observations`. Every parent reference resolves to a logged node.\n- **Forward walk** is the chronological order in the trace JSON.\n- **Verification:** run `scripts/verify_trace.sh` to confirm\n  every reference resolves cleanly. The script walks the chain\n  backward and exits non-zero if any pointer is dangling.\n\nThe honest scope of \"replayability.\" The recorded reasoning chain is\ncomplete and traversable in both directions. Replay reconstructs\n**what happened**. It does not re-derive answers by re-running the\nmodel. LLM output at non-zero temperature is non-deterministic; the\naudit trail captures the reasoning that occurred, not a reproducible\nrecipe for re-deriving it. This is true of every LLM-based system and\nis acknowledged here explicitly.",
+    "specialist_findings_summary": [
+      {
+        "Agent": "System Mapper",
+        "Finding type": "plan_complete",
+        "Confidence": "-",
+        "Key observation": "Single tier present: compute. No cross-tier pairs to analyze.",
+        "Evidence refs": "`sm_001`"
+      },
+      {
+        "Agent": "Compute Analyst",
+        "Finding type": "`issue_found`",
+        "Confidence": "High",
+        "Key observation": "Fixed 6-instance fleet, no ASG. CPU spikes to 96% in two predictable daily weekday windows; p95 latency 572 ms vs 300 ms SLA.",
+        "Evidence refs": "`obs_comp_001`, `obs_comp_002`, `obs_comp_003`, `obs_comp_004`"
+      }
+    ],
+    "trade_off_scores_table": [
+      {
+        "Dimension": "Cost",
+        "Score": "+$2,496 / month",
+        "Note": "48% reduction. Blended average of 3.7 instances vs current fixed 6."
+      },
+      {
+        "Dimension": "Performance",
+        "Score": "+51% p95",
+        "Note": "Application p95 from 572 ms peak to 200-280 ms; CPU peak from 96% to 65%."
+      },
+      {
+        "Dimension": "Reliability",
+        "Score": "SLA restored",
+        "Note": "p95 < 300 ms target met during spike windows with 9-instance headroom."
+      },
+      {
+        "Dimension": "Risk",
+        "Score": "Low to moderate",
+        "Note": "Spike timing may shift seasonally; target-tracking policy mitigates within 5-7 min."
+      }
+    ],
+    "evidence_anchors": [
+      {
+        "Source": "`compute_telemetry.json` (cpu_p95)",
+        "Observations captured": "`obs_comp_001`",
+        "What it supports": "CPU distribution: p95 91.2%, peak 95.9%, stddev 14.1%."
+      },
+      {
+        "Source": "`compute_telemetry.json` (cpu_p95 time pattern)",
+        "Observations captured": "`obs_comp_002`",
+        "What it supports": "Two daily weekday spike windows; 11 of 14 days hold the pattern."
+      },
+      {
+        "Source": "`compute_telemetry.json` (application_p95_latency)",
+        "Observations captured": "`obs_comp_003`",
+        "What it supports": "p95 487.5 ms, peak 572.4 ms vs 300 ms SLA threshold."
+      },
+      {
+        "Source": "`main.tf`",
+        "Observations captured": "`obs_comp_004`",
+        "What it supports": "6 x m5.large fixed fleet, no ASG, no scaling policy."
+      }
+    ],
+    "handoff": {
+      "State": "Ready for human review",
+      "Review packet": "`traces/scenario_02_review_packet.json`",
+      "Audit trail": "review_id `rev_b7c3d4e1`",
+      "Trace walkthrough": "`sample_runs/traces/scenario_02_trace.json`"
+    },
+    "specialist_findings_footer": "Every ID in the Evidence refs column resolves to a logged observation\nin `sample_runs/traces/scenario_02_trace.json`. A reviewer can walk\nfrom any claim to the tool call that produced it.",
+    "trade_off_footer": "This is the unusual case where cost savings and reliability move in\nthe same direction. The fixed fleet over-provisions off-peak (paying\nfor capacity that idles) and under-provisions during spikes (failing\nSLA). Scheduled scaling fixes both at once.",
+    "evidence_anchors_footer": "Every claim in this report resolves to one of the source-plus-observation\npairs above. The observation IDs are logged in\n`sample_runs/traces/scenario_02_trace.json`.",
+    "handoff_footer": "A human reviewer can walk the audit trail by `review_id` to see every\nthought, tool call, and observation logged during this analysis.",
+    "specialist_findings_intro": "Only the Compute Analyst was invoked. The System Mapper observed that\nno database, cache, or network tier is present in the Terraform, so no\nother specialists had any tier to read."
+  },
+  "_provenance": {
+    "authored_at": "2026-05-29",
+    "dataset_version": "Phase 7c sample_runs composite",
+    "author": "alex.meau",
+    "note": "Sample audit trail for scenario 02. Single-tier compute scenario: only Compute Analyst is invoked because no other tiers are present in the topology. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
+    "what_is_real": [
+      "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.sh)",
+      "Tool-call action signatures: summary_statistics(...), get_time_pattern(...), get_infrastructure_context(...), these match the Reasoning Harness's read contract",
+      "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
+      "Single-specialist invocation pattern: System Mapper detects only the compute tier present in tier_topology, so Supervisor invokes only Compute Analyst",
+      "Specialist finding type and evidence_refs list: structurally identical to what the real specialist will produce",
+      "Cross-tier interactions empty: correlation_evidence.json is empty for scenario 02 because no other tier is present to correlate against"
+    ],
+    "what_is_illustrative": [
+      "Timestamps: triggered_at, completed_at, placeholder values for a review that has not occurred",
+      "Durations: wall_clock_seconds, duration_ms per step, plausible estimates, not measurements",
+      "bundle_hash: 'sha256:c4f2a9...e7', fabricated",
+      "review_id: 'rev_b7c3d4e1', fabricated",
+      "Specific p50/p90/p95 observation numbers in each react_step, derived from gold-answer reasoning, not from a real summary_statistics tool call",
+      "Drift-check verdict ('tight'): what the architecture commits to producing, not what was measured by a live evaluator",
+      "Action Harness checks (all 'pass'): same; architectural commitment, not measurement"
+    ],
+    "what_is_verifiable_today": [
+      "Run: scripts/verify_trace.sh",
+      "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
+      "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
+    ]
+  }
+}

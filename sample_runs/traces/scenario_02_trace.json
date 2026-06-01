@@ -2,7 +2,7 @@
   "_note": "Sample audit trail for scenario 02. Single-tier compute scenario: only Compute Analyst is invoked because no other tiers are present in the topology. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
 
   "_what_is_real": [
-    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.py)",
+    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.sh)",
     "Tool-call action signatures: summary_statistics(...), get_time_pattern(...), get_infrastructure_context(...), these match the Reasoning Harness's read contract",
     "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
     "Single-specialist invocation pattern: System Mapper detects only the compute tier present in tier_topology, so Supervisor invokes only Compute Analyst",
@@ -21,11 +21,10 @@
   ],
 
   "_what_is_verifiable_today": [
-    "Run: python scripts/verify_trace.py",
+    "Run: scripts/verify_trace.sh",
     "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
     "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
   ],
-
 
   "review": {
     "review_id": "rev_b7c3d4e1",
@@ -67,8 +66,12 @@
     "step_id": "sm_001",
     "input": "Terraform main.tf",
     "output": {
-      "tiers_present": ["compute"],
-      "tiers_relevant": ["compute"],
+      "tiers_present": [
+        "compute"
+      ],
+      "tiers_relevant": [
+        "compute"
+      ],
       "dependency_graph": {
         "compute": "aws_instance.app (6 instances, no ASG)"
       },
@@ -122,8 +125,18 @@
           "observation": {
             "baseline_cpu_p95": 34,
             "peak_windows": [
-              {"day_of_week": "weekday", "window_utc": "09:45-11:15", "cpu_p95": 91, "occurrences": 11},
-              {"day_of_week": "weekday", "window_utc": "14:45-16:15", "cpu_p95": 89, "occurrences": 11}
+              {
+                "day_of_week": "weekday",
+                "window_utc": "09:45-11:15",
+                "cpu_p95": 91,
+                "occurrences": 11
+              },
+              {
+                "day_of_week": "weekday",
+                "window_utc": "14:45-16:15",
+                "cpu_p95": 89,
+                "occurrences": 11
+              }
             ],
             "pattern": "predictable_daily_spikes"
           }
@@ -159,7 +172,12 @@
       "finding": {
         "finding_type": "issue_found",
         "primary_observation": "Fixed 6-instance fleet, no ASG. CPU spikes to 96% in two predictable daily weekday windows (09:45-11:15 and 14:45-16:15 UTC); p95 latency reaches 572ms versus the 300ms SLA target.",
-        "evidence_refs": ["obs_comp_001", "obs_comp_002", "obs_comp_003", "obs_comp_004"],
+        "evidence_refs": [
+          "obs_comp_001",
+          "obs_comp_002",
+          "obs_comp_003",
+          "obs_comp_004"
+        ],
         "confidence": "high"
       },
       "duration_ms": 9800
@@ -179,7 +197,9 @@
     "cross_tier_interactions": [],
     "synthesis": {
       "synthesis_id": "syn_001",
-      "contributing_findings": ["spc_comp_001"],
+      "contributing_findings": [
+        "spc_comp_001"
+      ],
       "finding_type": "issue_found",
       "primary_tier": "compute",
       "secondary_tier": null,
@@ -190,7 +210,12 @@
         "reliability": "SLA target (p95 < 300ms) restored during spike windows",
         "risk": "low to moderate (spike timing may shift; target-tracking safety net mitigates)"
       },
-      "evidence_refs": ["obs_comp_001", "obs_comp_002", "obs_comp_003", "obs_comp_004"],
+      "evidence_refs": [
+        "obs_comp_001",
+        "obs_comp_002",
+        "obs_comp_003",
+        "obs_comp_004"
+      ],
       "evaluator_confidence": "high"
     },
     "duration_ms": 6800
@@ -202,10 +227,28 @@
     "evaluator_id": "eval_001",
     "synthesis_id": "syn_001",
     "checks": [
-      {"check": "well_formedness", "verdict": "pass"},
-      {"check": "evidence_completeness", "verdict": "pass", "verified_refs": ["obs_comp_001", "obs_comp_002", "obs_comp_003", "obs_comp_004"]},
-      {"check": "severity_calibration", "verdict": "pass"},
-      {"check": "duplication_against_recent_reviews", "verdict": "pass"}
+      {
+        "check": "well_formedness",
+        "verdict": "pass"
+      },
+      {
+        "check": "evidence_completeness",
+        "verdict": "pass",
+        "verified_refs": [
+          "obs_comp_001",
+          "obs_comp_002",
+          "obs_comp_003",
+          "obs_comp_004"
+        ]
+      },
+      {
+        "check": "severity_calibration",
+        "verdict": "pass"
+      },
+      {
+        "check": "duplication_against_recent_reviews",
+        "verdict": "pass"
+      }
     ],
     "verdict": "pass",
     "duration_ms": 180

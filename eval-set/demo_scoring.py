@@ -22,7 +22,6 @@ Run this demo:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -76,9 +75,10 @@ def main():
         dataset_examples_dir=PROJECT_ROOT / "dataset-examples",
         judge=judge,
     )
-    gold = json.loads(
-        (EVAL_SET_DIR / "expectations" / f"{DEMO_SCENARIO}.json").read_text()
-    )
+    # Use the evaluator's own loaded gold (derived from the scenario's
+    # composite raw_recommendation.json) as the prediction-to-score, so
+    # the demo reflects how a real prediction would flow through.
+    gold = evaluator.gold_for(DEMO_SCENARIO)
     result = evaluator.score_one(DEMO_SCENARIO, gold)
 
     print()

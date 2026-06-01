@@ -1,8 +1,10 @@
-"""Basic validation tests for the 18 gold answers in eval-set/expectations/.
+"""Basic validation tests for the 18 composites in eval-set/expectations/.
 
-These tests confirm the gold answers are well-formed and consistent with
-the project's enums. They do not score agent output; that's the job of
-src/evaluator/.
+Each scenario lives in expectations/NN/raw_recommendation.json as a
+composite: gold answer (top-level prediction fields) + scoring rubric
+(scoring_metadata block) in a single artifact. These tests confirm the
+composites are well-formed and consistent with the project's enums.
+They do not score agent output; that's the job of src/evaluator/.
 
 The enum allowed-value sets come from src.evaluator.enums (single source
 of truth). If a new enum value needs to be added, add it once in enums.py
@@ -19,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from src.composite import Composite
 # Single source of truth for the enum universes. See src/evaluator/enums.py.
 # - FINDING_TYPES includes 'insufficient_data' (forward-compatible; not yet
 #   used in any gold), so for dataset validation we use the subset that the
@@ -29,17 +32,27 @@ from src.evaluator.enums import (
     SECONDARY_TIERS,
     ACTION_CATEGORIES,
 )
-from src.evaluator.rules import load_rules_dir, validate_rules
+from src.evaluator.rules import validate_rules
 
 
-# tests/integration/test_eval_set_data.py -> eval-set/expectations/
+# tests/integration/test_eval_set_data.py -> eval-set/expectations/NN/
 EVAL_SET_DIR = (
     Path(__file__).resolve().parent.parent.parent / "eval-set"
 )
 EXPECTATIONS_DIR = EVAL_SET_DIR / "expectations"
-SCORING_RULES_DIR = EVAL_SET_DIR / "scoring_rules"
 
 SCENARIO_IDS = [f"{i:02d}" for i in range(1, 19)]
+
+
+def _composite_path(sid: str) -> Path:
+    return EXPECTATIONS_DIR / sid / "raw_recommendation.json"
+
+
+def _load_all_composites() -> dict[str, Composite]:
+    return {
+        sid: Composite.model_validate_json(_composite_path(sid).read_text())
+        for sid in SCENARIO_IDS
+    }
 
 REQUIRED_TOP_LEVEL_FIELDS = {
     "scenario_id",
@@ -75,37 +88,44 @@ REQUIRED_EVIDENCE_CATEGORIES = {
 # Fixtures
 # ============================================================
 @pytest.fixture(scope="module")
-def gold_answers() -> dict[str, dict]:
-    out = {}
-    for sid in SCENARIO_IDS:
-        path = EXPECTATIONS_DIR / f"{sid}.json"
-        out[sid] = json.loads(path.read_text())
-    return out
+def composites() -> dict[str, Composite]:
+    return _load_all_composites()
+
+
+@pytest.fixture(scope="module")
+def gold_answers(composites: dict[str, Composite]) -> dict[str, dict]:
+    return {sid: c.to_gold_dict() for sid, c in composites.items()}
 
 
 # ============================================================
 # Presence + parseability
 # ============================================================
-def test_all_18_files_present():
-    missing = [sid for sid in SCENARIO_IDS
-               if not (EXPECTATIONS_DIR / f"{sid}.json").exists()]
-    assert not missing, f"missing gold-answer files: {missing}"
+def test_all_18_composites_present():
+    missing = [sid for sid in SCENARIO_IDS if not _composite_path(sid).exists()]
+    assert not missing, f"missing composites: {missing}"
 
 
-def test_all_files_parse_as_json():
+def test_all_composites_parse_as_json():
     for sid in SCENARIO_IDS:
-        path = EXPECTATIONS_DIR / f"{sid}.json"
+        path = _composite_path(sid)
         try:
             json.loads(path.read_text())
         except json.JSONDecodeError as e:
-            pytest.fail(f"{sid}.json does not parse as JSON: {e}")
+            pytest.fail(f"{path} does not parse as JSON: {e}")
 
 
-def test_no_extra_files_in_expectations_folder():
-    found = {p.name for p in EXPECTATIONS_DIR.iterdir() if p.is_file()}
-    expected = {f"{sid}.json" for sid in SCENARIO_IDS}
+def test_all_composites_validate_against_pydantic_schema():
+    for sid in SCENARIO_IDS:
+        Composite.model_validate_json(_composite_path(sid).read_text())
+
+
+def test_only_NN_subfolders_in_expectations():
+    found = {p.name for p in EXPECTATIONS_DIR.iterdir() if p.is_dir()}
+    expected = set(SCENARIO_IDS)
     extra = found - expected
-    assert not extra, f"unexpected files in expectations/: {sorted(extra)}"
+    missing = expected - found
+    assert not extra, f"unexpected subfolders in expectations/: {sorted(extra)}"
+    assert not missing, f"missing subfolders in expectations/: {sorted(missing)}"
 
 
 # ============================================================
@@ -268,30 +288,33 @@ class TestScoringRulesValidation:
     automatic on every test run.
     """
 
-    def test_all_rules_files_load_and_validate(self):
-        """Every rules.json must load without error and every value in
-        every *_allowed list must be in the corresponding enum universe.
+    def test_all_composite_rules_load_and_validate(self):
+        """Every composite's scoring_metadata must yield a rules dict whose
+        *_allowed lists all sit within the corresponding enum universe.
 
         validate_rules() raises ValueError on the first mismatch; if any
         scenario has drifted, this test fails loud with the bad value
-        and the source file path.
+        and the source composite path.
         """
-        rules_by_sid = load_rules_dir(SCORING_RULES_DIR)
-        assert len(rules_by_sid) == 18, (
-            f"Expected 18 rules files, found {len(rules_by_sid)}"
+        composites = _load_all_composites()
+        assert len(composites) == 18, (
+            f"Expected 18 composites, found {len(composites)}"
         )
+        for sid, c in composites.items():
+            validate_rules(c.to_rules_dict(), source=str(_composite_path(sid)))
 
     def test_no_undocumented_broad_allowed_lists(self):
         """Per-scenario allowed lists should be single-value (strict equality).
-        If any are broader, the rules file must include an explanatory
+        If any are broader, the composite must carry an explanatory
         _rationale field documenting why.
 
         Replaces the BROAD-flag detection previously done by
         src/evaluator/feasibility.py.
         """
-        rules_by_sid = load_rules_dir(SCORING_RULES_DIR)
+        composites = _load_all_composites()
         undocumented_broad = []
-        for sid, rules in rules_by_sid.items():
+        for sid, c in composites.items():
+            rules = c.to_rules_dict()
             has_rationale = any(k.endswith("_rationale") for k in rules.keys())
             for field in ("finding_type_allowed", "primary_tier_allowed",
                           "secondary_tier_allowed", "action_category_allowed"):
@@ -302,16 +325,21 @@ class TestScoringRulesValidation:
         assert not undocumented_broad, (
             f"Found broad allowed lists without _rationale documentation: "
             f"{undocumented_broad}. Either tighten to single-value or add "
-            f"a rationale field to the rules.json file."
+            f"a rationale field to the composite's scoring_metadata block."
         )
 
     def test_no_action_scenarios_omit_keyword_groups(self):
         """Short-circuited scenarios (06, 15, 17) should not define
         action_keyword_groups or multi_tier_evidence, since Mid + Rich
         are bypassed. Defining them would be dead config.
+
+        These keys aren't part of the Pydantic ScoringMetadata schema, so
+        this test is now a stronger statement: composites whose scoring
+        rubric is short-circuited must not even mention those keys.
         """
-        rules_by_sid = load_rules_dir(SCORING_RULES_DIR)
-        for sid, rules in rules_by_sid.items():
+        composites = _load_all_composites()
+        for sid, c in composites.items():
+            rules = c.to_rules_dict()
             sc = rules.get("short_circuit", {})
             if isinstance(sc, dict) and sc.get("applies"):
                 assert "action_keyword_groups" not in rules, (

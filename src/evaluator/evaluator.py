@@ -46,10 +46,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..composite import Composite
 from .correctness_measure import score_correctness, score_floor
 from .mid_measure import score_mid
 from .richness_measure import score_rich
-from .rules import load_rules_dir, load_rules_file
+from .rules import load_rules_dir, load_rules_file, validate_rules
 from .shape_measure import score_shape
 from .types import TierResult
 
@@ -91,26 +92,49 @@ class Evaluator:
                           eval_set_dir: Path | str,
                           dataset_examples_dir: Path | str | None = None,
                           judge: Any | None = None) -> "Evaluator":
-        """Load all scenarios' rules + gold answers from eval-set/.
+        """Load all scenarios' composites from eval-set/expectations/NN/.
+
+        Each composite (raw_recommendation.json) carries both the gold
+        answer (top-level prediction fields) and the scoring rubric
+        (scoring_metadata block) in a single file. The Evaluator splits
+        them back into rules_by_sid + gold_by_sid via the composite's
+        to_rules_dict()/to_gold_dict() accessors so downstream measure
+        modules keep their existing key access patterns.
 
         Args:
-            eval_set_dir: path to eval-set/ (contains scoring_rules/
-                and expectations/).
+            eval_set_dir: path to eval-set/ (contains expectations/NN/
+                folders, each with raw_recommendation.json).
             dataset_examples_dir: optional path to dataset-examples/
                 (for scenario_NN/metadata.json used by Rich).
             judge: optional LLM judge. When None, Mid + Rich skip.
         """
         eval_set_dir = Path(eval_set_dir)
-        rules = load_rules_dir(eval_set_dir / "scoring_rules")
-
-        # Load gold answers from expectations/NN.json (matches rules keys)
-        gold: dict[str, dict] = {}
         expectations_dir = eval_set_dir / "expectations"
-        if expectations_dir.exists():
-            for sid in rules.keys():
-                p = expectations_dir / f"{sid}.json"
-                if p.exists():
-                    gold[sid] = json.loads(p.read_text())
+        if not expectations_dir.exists():
+            raise FileNotFoundError(
+                f"expectations directory not found: {expectations_dir}"
+            )
+
+        rules: dict[str, dict] = {}
+        gold: dict[str, dict] = {}
+        for sid_dir in sorted(expectations_dir.iterdir()):
+            if not sid_dir.is_dir():
+                continue
+            sid = sid_dir.name
+            comp_path = sid_dir / "raw_recommendation.json"
+            if not comp_path.exists():
+                continue
+            composite = Composite.model_validate_json(comp_path.read_text())
+            scenario_rules = composite.to_rules_dict()
+            validate_rules(scenario_rules, source=str(comp_path))
+            rules[sid] = scenario_rules
+            gold[sid] = composite.to_gold_dict()
+
+        if not rules:
+            raise FileNotFoundError(
+                f"no NN/raw_recommendation.json composites found under "
+                f"{expectations_dir}"
+            )
 
         # Load scenario metadata if a dataset-examples folder is provided
         metadata: dict[str, dict] = {}
@@ -125,6 +149,34 @@ class Evaluator:
             rules_by_sid=rules,
             gold_by_sid=gold,
             metadata_by_sid=metadata,
+            judge=judge,
+        )
+
+    @classmethod
+    def from_single_composite_file(cls,
+                                   composite_path: Path | str,
+                                   sid: str | None = None,
+                                   metadata: dict | None = None,
+                                   judge: Any | None = None) -> "Evaluator":
+        """Build an evaluator from a single raw_recommendation.json composite.
+
+        Args:
+            composite_path: path to a composite JSON file.
+            sid: scenario id to register the loaded data under. When None,
+                the composite's own scenario_id field is used.
+            metadata: optional dataset metadata for the scenario.
+            judge: optional LLM judge.
+        """
+        composite_path = Path(composite_path)
+        composite = Composite.model_validate_json(composite_path.read_text())
+        scenario_rules = composite.to_rules_dict()
+        validate_rules(scenario_rules, source=str(composite_path))
+        scenario_gold = composite.to_gold_dict()
+        registered_sid = sid if sid is not None else composite.scenario_id
+        return cls(
+            rules_by_sid={registered_sid: scenario_rules},
+            gold_by_sid={registered_sid: scenario_gold},
+            metadata_by_sid={registered_sid: metadata} if metadata else {},
             judge=judge,
         )
 

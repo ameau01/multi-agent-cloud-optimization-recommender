@@ -2,7 +2,7 @@
   "_note": "Sample audit trail for scenario 07. Cross-tier scenario: cache memory pressure cascades into database load and application latency. The Data Layer Analyst covers both cache and database (per docs/agents.md), so the cross-tier signal appears within a single specialist's findings as well as in the Evaluator's cross_tier_interactions block. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
 
   "_what_is_real": [
-    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.py)",
+    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.sh)",
     "Tool-call action signatures: summary_statistics(...), get_top_cache_keys(...), get_infrastructure_context(...), these match the Reasoning Harness's read contract",
     "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
     "Cross-tier correlation values: r=-0.961, r=-0.963, r=0.924, all zero-lag, pulled from correlation_evidence.json in the published dataset",
@@ -22,11 +22,10 @@
   ],
 
   "_what_is_verifiable_today": [
-    "Run: python scripts/verify_trace.py",
+    "Run: scripts/verify_trace.sh",
     "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
     "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
   ],
-
 
   "review": {
     "review_id": "rev_c8d4e5f2",
@@ -68,8 +67,16 @@
     "step_id": "sm_001",
     "input": "Terraform main.tf",
     "output": {
-      "tiers_present": ["compute", "database", "cache"],
-      "tiers_relevant": ["compute", "database", "cache"],
+      "tiers_present": [
+        "compute",
+        "database",
+        "cache"
+      ],
+      "tiers_relevant": [
+        "compute",
+        "database",
+        "cache"
+      ],
       "dependency_graph": {
         "compute_to_cache": "aws_instance.app -> aws_elasticache_cluster.recs",
         "compute_to_database": "aws_instance.app -> aws_db_instance.primary",
@@ -81,8 +88,14 @@
           "data_layer_analyst"
         ],
         "cross_tier_pairs": [
-          ["cache", "database"],
-          ["cache", "compute"]
+          [
+            "cache",
+            "database"
+          ],
+          [
+            "cache",
+            "compute"
+          ]
         ],
         "rationale": "No network tier in Terraform; Network Analyst skipped. Data Layer Analyst handles both cache and database tiers."
       }
@@ -114,7 +127,7 @@
           "action": "summary_statistics(tier='cache', metric='cache_hit_ratio')",
           "observation_id": "obs_data_001",
           "observation": {
-            "p50": 0.70,
+            "p50": 0.7,
             "p90": 0.62,
             "p95": 0.58,
             "mean": 0.669,
@@ -152,9 +165,24 @@
           "observation_id": "obs_data_004",
           "observation": {
             "top_patterns": [
-              {"key_pattern": "rec:user:*", "hit_count": 8200000, "miss_count": 3100000, "miss_rate": 0.274},
-              {"key_pattern": "rec:trending:*", "hit_count": 4400000, "miss_count": 1900000, "miss_rate": 0.302},
-              {"key_pattern": "rec:similar:*", "hit_count": 2800000, "miss_count": 1700000, "miss_rate": 0.378}
+              {
+                "key_pattern": "rec:user:*",
+                "hit_count": 8200000,
+                "miss_count": 3100000,
+                "miss_rate": 0.274
+              },
+              {
+                "key_pattern": "rec:trending:*",
+                "hit_count": 4400000,
+                "miss_count": 1900000,
+                "miss_rate": 0.302
+              },
+              {
+                "key_pattern": "rec:similar:*",
+                "hit_count": 2800000,
+                "miss_count": 1700000,
+                "miss_rate": 0.378
+              }
             ],
             "top_3_total_miss": 6700000,
             "total_accesses_per_tier": 22100000
@@ -190,7 +218,14 @@
       "finding": {
         "finding_type": "issue_found",
         "primary_observation": "Cache is memory-saturated at 94.6% with evictions reaching 180/sec, hit ratio at 0.669 versus the 0.89 band. Top three key patterns (rec:user:*, rec:trending:*, rec:similar:*) account for 6.7M of ~22.1M total accesses. DB query p95 elevated to 316ms is a downstream symptom of cache-miss overflow; DB CPU stays healthy at 58% p95.",
-        "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_data_004", "obs_data_005", "obs_data_006"],
+        "evidence_refs": [
+          "obs_data_001",
+          "obs_data_002",
+          "obs_data_003",
+          "obs_data_004",
+          "obs_data_005",
+          "obs_data_006"
+        ],
         "confidence": "high"
       },
       "duration_ms": 12400
@@ -230,7 +265,10 @@
       "finding": {
         "finding_type": "no_issue_found",
         "primary_observation": "CPU stable at 70% p95 within the healthy band. Application latency is elevated but tracks the cache-miss / DB-latency pattern, not compute load. Scaling compute would not address the root cause.",
-        "evidence_refs": ["obs_comp_001", "obs_comp_002"],
+        "evidence_refs": [
+          "obs_comp_001",
+          "obs_comp_002"
+        ],
         "confidence": "high"
       },
       "duration_ms": 5100
@@ -256,7 +294,10 @@
     "cross_tier_interactions": [
       {
         "interaction_id": "xt_001",
-        "tiers": ["cache", "database"],
+        "tiers": [
+          "cache",
+          "database"
+        ],
         "interaction_type": "miss_overflow_cascade",
         "correlation_source": "correlation_evidence.json",
         "correlation_index": 0,
@@ -267,7 +308,10 @@
       },
       {
         "interaction_id": "xt_002",
-        "tiers": ["cache", "compute"],
+        "tiers": [
+          "cache",
+          "compute"
+        ],
         "interaction_type": "miss_overflow_cascade",
         "correlation_source": "correlation_evidence.json",
         "correlation_index": 1,
@@ -278,7 +322,10 @@
       },
       {
         "interaction_id": "xt_003",
-        "tiers": ["cache", "database"],
+        "tiers": [
+          "cache",
+          "database"
+        ],
         "interaction_type": "downstream_buffer_pressure",
         "correlation_source": "correlation_evidence.json",
         "correlation_index": 2,
@@ -290,7 +337,10 @@
     ],
     "synthesis": {
       "synthesis_id": "syn_001",
-      "contributing_findings": ["spc_data_001", "spc_comp_001"],
+      "contributing_findings": [
+        "spc_data_001",
+        "spc_comp_001"
+      ],
       "finding_type": "issue_found",
       "primary_tier": "cache",
       "secondary_tier": "database",
@@ -301,7 +351,17 @@
         "reliability": "SLA target (p95 < 300ms) restored; DB query p95 expected to drop ~38%",
         "risk": "moderate (hot-shard imbalance if key cardinality is skewed; mitigated by deploying key redesign with node expansion)"
       },
-      "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_data_004", "obs_data_005", "obs_data_006", "xt_001", "xt_002", "xt_003"],
+      "evidence_refs": [
+        "obs_data_001",
+        "obs_data_002",
+        "obs_data_003",
+        "obs_data_004",
+        "obs_data_005",
+        "obs_data_006",
+        "xt_001",
+        "xt_002",
+        "xt_003"
+      ],
       "evaluator_confidence": "high"
     },
     "duration_ms": 18900
@@ -313,10 +373,35 @@
     "evaluator_id": "eval_001",
     "synthesis_id": "syn_001",
     "checks": [
-      {"check": "well_formedness", "verdict": "pass"},
-      {"check": "evidence_completeness", "verdict": "pass", "verified_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_data_004", "obs_data_005", "obs_data_006", "obs_comp_001", "obs_comp_002", "xt_001", "xt_002", "xt_003"]},
-      {"check": "severity_calibration", "verdict": "pass"},
-      {"check": "duplication_against_recent_reviews", "verdict": "pass"}
+      {
+        "check": "well_formedness",
+        "verdict": "pass"
+      },
+      {
+        "check": "evidence_completeness",
+        "verdict": "pass",
+        "verified_refs": [
+          "obs_data_001",
+          "obs_data_002",
+          "obs_data_003",
+          "obs_data_004",
+          "obs_data_005",
+          "obs_data_006",
+          "obs_comp_001",
+          "obs_comp_002",
+          "xt_001",
+          "xt_002",
+          "xt_003"
+        ]
+      },
+      {
+        "check": "severity_calibration",
+        "verdict": "pass"
+      },
+      {
+        "check": "duplication_against_recent_reviews",
+        "verdict": "pass"
+      }
     ],
     "verdict": "pass",
     "duration_ms": 260

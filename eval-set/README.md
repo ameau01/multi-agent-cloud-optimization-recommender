@@ -1,8 +1,9 @@
 # eval-set
 
-The benchmark dataset. Pure data: 18 gold answers, 18 per-scenario scoring
-rules, and one demo script that shows how the evaluator scores a single
-recommendation. No tests live here; tests live in [`tests/`](../tests/).
+The benchmark dataset. Pure data: 18 composite recommendations (each
+bundling a gold answer with its scoring rubric) plus one demo script that
+shows how the evaluator scores a single recommendation. No tests live
+here; tests live in [`tests/`](../tests/).
 
 For the four-layer evaluator that scores predictions against this data,
 see [`docs/eval-set.md`](../docs/eval-set.md).
@@ -11,23 +12,33 @@ see [`docs/eval-set.md`](../docs/eval-set.md).
 
 ```
 eval-set/
-├── expectations/                    18 gold answers (NN.json)
-├── scoring_rules/                   18 per-scenario check parameters (NN/rules.json)
+├── expectations/
+│   ├── 01/raw_recommendation.json   composite: gold answer + scoring rubric
+│   ├── 02/raw_recommendation.json
+│   ├── ...
+│   └── 18/raw_recommendation.json
 ├── demo_scoring.py                  scores one gold (app-08) as a usage example
 └── README.md                        (this file)
 ```
 
-The 18 `expectations/NN.json` files are byte-identical copies of the
-hand-crafted recommendations from
+Each `expectations/NN/raw_recommendation.json` is a composite: the
+top-level prediction fields are the gold answer, and the
+`scoring_metadata` block holds the per-scenario rubric the evaluator
+uses. The Pydantic schema lives at
+[`src/composite/schema.py`](../src/composite/schema.py).
+
+The 18 gold answers descend from the hand-crafted recommendations at
 [`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations).
+The Phase 7.13 composite refactor moved the scoring rubric inside the
+same file; the published Hugging Face dataset is one revision behind.
 
 ## How the pieces fit
 
-| Folder/file                                | Role                                                                |
-|--------------------------------------------|---------------------------------------------------------------------|
-| `eval-set/expectations/NN.json`            | Gold answer. What the right recommendation is.                      |
-| `eval-set/scoring_rules/NN/rules.json`     | Per-scenario rules. The enum-allow-lists for Correctness.           |
-| `src/evaluator/`                           | Pure scoring code. Reads gold + rules from here.                    |
+| Folder/file                                       | Role                                                          |
+|---------------------------------------------------|---------------------------------------------------------------|
+| `eval-set/expectations/NN/raw_recommendation.json`| Composite: gold answer (top-level) + rubric (scoring_metadata)|
+| `src/composite/schema.py`                         | Pydantic schema; defines the composite shape and validators.  |
+| `src/evaluator/`                                  | Pure scoring code. Reads composites from here.                |
 | `src/evaluator/eval.py`                    | CLI entry point (`--app-name`, `--prediction`, `--no-judge`).       |
 | `src/evaluator/evaluator.py`               | `Evaluator` class for Python API use.                               |
 | `src/evaluator/judge_client.py`            | Anthropic SDK wrapper for the LLM judge (Mid + Rich).               |
@@ -37,8 +48,9 @@ hand-crafted recommendations from
 | `tests/judge_live/`                        | Opt-in tests that exercise the real Anthropic judge.                |
 
 `src/evaluator/` is pure Python with no data files. `eval-set/` is pure
-data. The dependency runs one way: `src/evaluator/` reads from
-`eval-set/`, never the reverse.
+data. The dependency runs one way: `src/evaluator/` reads composites
+from `eval-set/`, never the reverse. `src/composite/` is the schema
+definition shared by both sides.
 
 ## App-name convention
 
@@ -94,8 +106,10 @@ gold-vs-gold self-validation still clears the high-richness band.
 
 ### 1. As reference
 
-Open any `expectations/NN.json` to see what a complete, well-formed
-recommendation looks like for that scenario.
+Open any `expectations/NN/raw_recommendation.json` to see what a
+complete, well-formed composite looks like for that scenario: the
+top-level prediction fields are the gold recommendation, the
+`scoring_metadata` block is the rubric.
 
 ### 2. Score one prediction (CLI)
 
@@ -185,7 +199,7 @@ Three levels of verification, depending on what you want to check.
 # Score the gold for app-08 against its own rules (deterministic only).
 uv run python -m src.evaluator.eval \
     --app-name app-08 \
-    --prediction eval-set/expectations/08.json \
+    --prediction eval-set/expectations/08/raw_recommendation.json \
     --no-judge
 ```
 
@@ -195,8 +209,9 @@ With the LLM judge enabled (drop `--no-judge`; requires API key):
 
 Expected: exit code 0, "All layers passed." on stdout.
 
-Pick a different `app-NN` (between `app-01` and `app-18`) and a
-matching `expectations/NN.json` to verify a different scenario.
+Pick a different `app-NN` (between `app-01` and `app-18`) and the
+matching `expectations/NN/raw_recommendation.json` to verify a different
+scenario.
 
 ### Verify all 18 scenarios via pytest (deterministic)
 
@@ -264,14 +279,17 @@ prompt or after dataset edits.
 
 ## Provenance
 
-The 18 gold answers + scoring rules diverge from the published Hugging
-Face dataset as of Phase 6.6 (strict enum equality, new `deferred` and
+The 18 composites diverge from the published Hugging Face dataset as of
+Phase 6.6 (strict enum equality, new `deferred` and
 `cache_capacity_adjustment` values, short-circuit rule for no-action
 findings). The Phase 6.16 design change moved Mid + Rich from
-deterministic placeholders to an LLM-judged threshold gate, and
-Phase 6.16b removed the now-unused `action_keyword_groups`,
-`action_keyword_min_match`, and `multi_tier_evidence` fields from
-`scoring_rules/NN/rules.json`. The local copies are the source of
+deterministic placeholders to an LLM-judged threshold gate. Phase 6.16b
+removed the now-unused `action_keyword_groups`, `action_keyword_min_match`,
+and `multi_tier_evidence` fields from the rubric. The Phase 7.13
+composite refactor merged the legacy `expectations/NN.json` (gold) and
+`scoring_rules/NN/rules.json` (rubric) into one
+`expectations/NN/raw_recommendation.json` per scenario, validated by
+the `Composite` Pydantic schema. The local copies are the source of
 truth; the published HF dataset is one revision behind. Re-publication
 is a separate task.
 

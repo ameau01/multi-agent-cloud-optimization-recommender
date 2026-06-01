@@ -17,22 +17,22 @@
 > after the agent system runs (Phase 7 in `CHANGELOG.md`).
 >
 > **What's verifiable today.** Trace structure and the traceability
-> contract. Run `python sample_runs/verify_trace.py` to confirm every
+> contract. Run `scripts/verify_trace.sh` to confirm every
 > reference in the companion trace JSON resolves.
 
 ---
 
 ## Final recommendation
 
-| Field             | Value                                                                |
-|-------------------|----------------------------------------------------------------------|
-| Finding type      | `issue_found`                                                        |
-| Primary tier      | `database`                                                           |
-| Secondary tier    | `compute` (downstream symptom)                                       |
-| Action category   | `query_cache_optimization`                                           |
-| Cost impact       | +$2,400 / month (reliability spend, not a savings)                   |
-| Performance       | Application p95 latency: 660 ms -> 220 ms                            |
-| SLA impact        | 99.9% target preserved                                               |
+| Field           | Value                                              |
+|-----------------|----------------------------------------------------|
+| Finding type    | `issue_found`                                      |
+| Primary tier    | `database`                                         |
+| Secondary tier  | `compute` (downstream symptom)                     |
+| Action category | `query_cache_optimization`                         |
+| Cost impact     | +$2,400 / month (reliability spend, not a savings) |
+| Performance     | Application p95 latency: 660 ms -> 220 ms          |
+| SLA impact      | 99.9% target preserved                             |
 
 Add composite indexes on the top six slowest queries. Provision two
 read replicas (db.r6g.xlarge) with read/write splitting on the
@@ -54,12 +54,12 @@ address the root cause.
 
 ## Specialist findings
 
-| Agent              | Finding type    | Confidence | Key observation                                                  | Evidence refs                          |
-|--------------------|-----------------|------------|------------------------------------------------------------------|----------------------------------------|
-| System Mapper      | plan_complete   | -          | Tier graph: compute, database, network. Cross-tier pair: db-compute. | `sm_001`                               |
-| Data Layer Analyst | `issue_found`   | High       | Six slow queries with p95 of 380 to 820 ms, holding on 11 of 14 days. | `obs_data_001`, `obs_data_002`, `obs_data_003` |
-| Compute Analyst    | `no_issue_found`| High       | CPU p95 stable at 27%. Latency tracks DB, not compute load.      | `obs_comp_001`, `obs_comp_002`         |
-| Network Analyst    | `no_issue_found`| High       | Bandwidth and packet loss within healthy bands.                  | `obs_net_001`, `obs_net_002`           |
+| Agent              | Finding type     | Confidence | Key observation                                                       | Evidence refs                                  |
+|--------------------|------------------|------------|-----------------------------------------------------------------------|------------------------------------------------|
+| System Mapper      | plan_complete    | -          | Tier graph: compute, database, network. Cross-tier pair: db-compute.  | `sm_001`                                       |
+| Data Layer Analyst | `issue_found`    | High       | Six slow queries with p95 of 380 to 820 ms, holding on 11 of 14 days. | `obs_data_001`, `obs_data_002`, `obs_data_003` |
+| Compute Analyst    | `no_issue_found` | High       | CPU p95 stable at 27%. Latency tracks DB, not compute load.           | `obs_comp_001`, `obs_comp_002`                 |
+| Network Analyst    | `no_issue_found` | High       | Bandwidth and packet loss within healthy bands.                       | `obs_net_001`, `obs_net_002`                   |
 
 Every ID in the Evidence refs column resolves to a logged observation
 in `sample_runs/traces/scenario_08_trace.json`. A reviewer can walk from
@@ -87,12 +87,12 @@ in the recommendation.
 
 ## Trade-off analysis
 
-| Dimension       | Score            | Note                                                  |
-|-----------------|------------------|-------------------------------------------------------|
-| Cost            | -$2,400 / month  | Two read replicas at db.r6g.xlarge add about $2,400/mo |
-| Performance     | +66% p95         | Application p95 latency 660 ms -> 220 ms during peak  |
-| Reliability     | Improved         | Closes SLA breach on tier-1 checkout service          |
-| Risk            | Low              | Standard composite-index and read-replica patterns    |
+| Dimension   | Score           | Note                                                   |
+|-------------|-----------------|--------------------------------------------------------|
+| Cost        | -$2,400 / month | Two read replicas at db.r6g.xlarge add about $2,400/mo |
+| Performance | +66% p95        | Application p95 latency 660 ms -> 220 ms during peak   |
+| Reliability | Improved        | Closes SLA breach on tier-1 checkout service           |
+| Risk        | Low             | Standard composite-index and read-replica patterns     |
 
 The cost line is intentionally negative. This is a reliability
 investment, not a cost-reduction recommendation. The trade-off
@@ -103,13 +103,13 @@ flow.
 
 ## Evidence anchors
 
-| Source                                              | Observations captured             | What it supports                                  |
-|-----------------------------------------------------|-----------------------------------|---------------------------------------------------|
-| `metadata.scenario_specific_evidence.top_queries`   | `obs_data_002`                    | Six query patterns with counts and p95 latencies  |
-| `correlation_evidence.json`                         | `xt_001`                          | 15-minute database-to-compute cascade signature   |
-| `database_telemetry.json`                           | `obs_data_001`, `obs_data_003`    | Query latency distribution, connection pool usage |
-| `compute_telemetry.json`                            | `obs_comp_001`, `obs_comp_002`    | Compute health (CPU p95 stable, latency rising)   |
-| `network_telemetry.json`                            | `obs_net_001`, `obs_net_002`      | No network contribution to the latency rise       |
+| Source                                            | Observations captured          | What it supports                                  |
+|---------------------------------------------------|--------------------------------|---------------------------------------------------|
+| `metadata.scenario_specific_evidence.top_queries` | `obs_data_002`                 | Six query patterns with counts and p95 latencies  |
+| `correlation_evidence.json`                       | `xt_001`                       | 15-minute database-to-compute cascade signature   |
+| `database_telemetry.json`                         | `obs_data_001`, `obs_data_003` | Query latency distribution, connection pool usage |
+| `compute_telemetry.json`                          | `obs_comp_001`, `obs_comp_002` | Compute health (CPU p95 stable, latency rising)   |
+| `network_telemetry.json`                          | `obs_net_001`, `obs_net_002`   | No network contribution to the latency rise       |
 
 Every claim in this report resolves to one of the source-plus-observation
 pairs above. The observation IDs are logged in
@@ -141,7 +141,7 @@ The traceability contract:
   observation_id. A reviewer can walk from any cited ID back to the
   tool call that produced it.
 
-**Today (Phase pre-7):** `sample_runs/verify_trace.py` runs the
+**Today (Phase pre-7):** `scripts/verify_trace.sh` runs the
 verification externally. It enumerates every evidence_ref the report
 cites and confirms each resolves to a logged observation. Exits
 non-zero if any pointer is dangling.
@@ -152,7 +152,7 @@ live review. The `action_harness_gate.checks[1].verified_refs` field in
 the trace is what carries the result. A dangling reference would fail
 the gate and the report would not be surfaced for review.
 
-Same contract, two enforcement points. `verify_trace.py` is the
+Same contract, two enforcement points. `scripts/verify_trace.sh` is the
 today-substitute; the gate is the runtime check that follows when the
 agents land.
 
@@ -166,7 +166,7 @@ through the chain without inference:
   -> `react_steps` -> `observations`. Every parent reference resolves
   to a logged node.
 - **Forward walk** is the chronological order in the trace JSON.
-- **Verification:** run `python sample_runs/verify_trace.py` to confirm
+- **Verification:** run `scripts/verify_trace.sh` to confirm
   every reference resolves cleanly. The script walks the chain
   backward and exits non-zero if any pointer is dangling.
 
@@ -182,12 +182,12 @@ is acknowledged here explicitly.
 
 ## Handoff
 
-| Field          | Value                                              |
-|----------------|----------------------------------------------------|
-| State          | Ready for human review                             |
-| Review packet  | `traces/scenario_08_review_packet.json`            |
-| Audit trail    | review_id `rev_a3f9b21c`                           |
-| Trace walkthrough | `sample_runs/traces/scenario_08_trace.json`        |
+| Field             | Value                                       |
+|-------------------|---------------------------------------------|
+| State             | Ready for human review                      |
+| Review packet     | `traces/scenario_08_review_packet.json`     |
+| Audit trail       | review_id `rev_a3f9b21c`                    |
+| Trace walkthrough | `sample_runs/traces/scenario_08_trace.json` |
 
 A human reviewer can walk the audit trail by `review_id` to see every
 thought, tool call, and observation logged during this analysis.

@@ -2,7 +2,7 @@
   "_note": "Sample audit trail for scenario 08. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md Phase 7. See docs/audit-trail.md for the full schema.",
 
   "_what_is_real": [
-    "Structure: every node has an ID; foreign-key references resolve (verifiable via verify_trace.py)",
+    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.sh)",
     "Tool-call action signatures: summary_statistics(...), get_top_queries(...), get_time_pattern(...), these match the Reasoning Harness's read contract",
     "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
     "Cross-tier correlation values: 0.945, lag 15min, alignment 0.979, pulled from correlation_evidence.json in the published dataset",
@@ -20,11 +20,10 @@
   ],
 
   "_what_is_verifiable_today": [
-    "Run: python sample_runs/verify_trace.py",
+    "Run: scripts/verify_trace.sh",
     "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
     "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
   ],
-
 
   "review": {
     "review_id": "rev_a3f9b21c",
@@ -66,8 +65,17 @@
     "step_id": "sm_001",
     "input": "Terraform main.tf",
     "output": {
-      "tiers_present": ["compute", "database", "cache", "network"],
-      "tiers_relevant": ["compute", "database", "network"],
+      "tiers_present": [
+        "compute",
+        "database",
+        "cache",
+        "network"
+      ],
+      "tiers_relevant": [
+        "compute",
+        "database",
+        "network"
+      ],
       "dependency_graph": {
         "compute_to_database": "aws_instance.app -> aws_db_instance.primary",
         "compute_to_network": "aws_instance.app -> aws_lb.frontend"
@@ -79,8 +87,14 @@
           "network_analyst"
         ],
         "cross_tier_pairs": [
-          ["compute", "database"],
-          ["compute", "network"]
+          [
+            "compute",
+            "database"
+          ],
+          [
+            "compute",
+            "network"
+          ]
         ]
       }
     },
@@ -145,7 +159,11 @@
       "finding": {
         "finding_type": "issue_found",
         "primary_observation": "Six queries account for the worst p95 latencies, holding on 11 of 14 days",
-        "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003"],
+        "evidence_refs": [
+          "obs_data_001",
+          "obs_data_002",
+          "obs_data_003"
+        ],
         "confidence": "high"
       },
       "duration_ms": 8200
@@ -182,7 +200,10 @@
       "finding": {
         "finding_type": "no_issue_found",
         "primary_observation": "CPU stable at 27%. Application latency tracks database latency, not compute load.",
-        "evidence_refs": ["obs_comp_001", "obs_comp_002"],
+        "evidence_refs": [
+          "obs_comp_001",
+          "obs_comp_002"
+        ],
         "confidence": "high"
       },
       "duration_ms": 5400
@@ -218,7 +239,10 @@
       "finding": {
         "finding_type": "no_issue_found",
         "primary_observation": "Bandwidth and packet loss within healthy bands.",
-        "evidence_refs": ["obs_net_001", "obs_net_002"],
+        "evidence_refs": [
+          "obs_net_001",
+          "obs_net_002"
+        ],
         "confidence": "high"
       },
       "duration_ms": 4100
@@ -250,7 +274,10 @@
     "cross_tier_interactions": [
       {
         "interaction_id": "xt_001",
-        "tiers": ["compute", "database"],
+        "tiers": [
+          "compute",
+          "database"
+        ],
         "interaction_type": "downstream_cascade",
         "correlation_source": "correlation_evidence.json",
         "correlation_index": 0,
@@ -261,14 +288,21 @@
       },
       {
         "interaction_id": "xt_002",
-        "tiers": ["compute", "network"],
+        "tiers": [
+          "compute",
+          "network"
+        ],
         "interaction_type": "none",
         "interpretation": "No correlation flagged. Network is healthy and not contributing."
       }
     ],
     "synthesis": {
       "synthesis_id": "syn_001",
-      "contributing_findings": ["spc_data_001", "spc_comp_001", "spc_net_001"],
+      "contributing_findings": [
+        "spc_data_001",
+        "spc_comp_001",
+        "spc_net_001"
+      ],
       "finding_type": "issue_found",
       "primary_tier": "database",
       "secondary_tier": "compute",
@@ -279,7 +313,12 @@
         "reliability": "improved (SLA compliance restored)",
         "risk": "low (standard patterns)"
       },
-      "evidence_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "xt_001"],
+      "evidence_refs": [
+        "obs_data_001",
+        "obs_data_002",
+        "obs_data_003",
+        "xt_001"
+      ],
       "evaluator_confidence": "high"
     },
     "duration_ms": 14200
@@ -291,10 +330,32 @@
     "evaluator_id": "eval_001",
     "synthesis_id": "syn_001",
     "checks": [
-      {"check": "well_formedness", "verdict": "pass"},
-      {"check": "evidence_completeness", "verdict": "pass", "verified_refs": ["obs_data_001", "obs_data_002", "obs_data_003", "obs_comp_001", "obs_comp_002", "obs_net_001", "obs_net_002", "xt_001"]},
-      {"check": "severity_calibration", "verdict": "pass"},
-      {"check": "duplication_against_recent_reviews", "verdict": "pass"}
+      {
+        "check": "well_formedness",
+        "verdict": "pass"
+      },
+      {
+        "check": "evidence_completeness",
+        "verdict": "pass",
+        "verified_refs": [
+          "obs_data_001",
+          "obs_data_002",
+          "obs_data_003",
+          "obs_comp_001",
+          "obs_comp_002",
+          "obs_net_001",
+          "obs_net_002",
+          "xt_001"
+        ]
+      },
+      {
+        "check": "severity_calibration",
+        "verdict": "pass"
+      },
+      {
+        "check": "duplication_against_recent_reviews",
+        "verdict": "pass"
+      }
     ],
     "verdict": "pass",
     "duration_ms": 220

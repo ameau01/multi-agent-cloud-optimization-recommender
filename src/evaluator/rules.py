@@ -1,24 +1,28 @@
 """Load and validate per-scenario scoring rules.
 
-A scoring rules file (eval-set/scoring_rules/NN/rules.json) defines:
+The scoring-rules dict (after Phase 7.13: the `scoring_metadata` block
+inside a composite, or the legacy `scoring_rules/NN/rules.json` shape)
+defines:
   - finding_type_allowed, primary_tier_allowed, secondary_tier_allowed,
     action_category_allowed: per-scenario enum allowed lists (each value
     must be in the corresponding universe defined in enums.py)
-  - action_keyword_groups, action_keyword_min_match: vocabulary the
-    recommendation prose must engage with (Mid check)
-  - multi_tier_evidence: tier names that must appear in the prose
   - must_cite_fixture: scenario metadata fixture the prose must cite (Rich check)
   - short_circuit: marker that no-action scenarios bypass Mid + Rich
   - description, *_rationale: human-readable documentation
 
 This module loads rules from disk and validates them against the enum
-universes. Two load modes per the architectural plan:
+universes. Two load modes:
 
   load_rules_file(path)         single rules.json (ad-hoc scenarios)
-  load_rules_dir(dir)           whole eval-set/scoring_rules/ folder
+  load_rules_dir(dir)           whole NN/rules.json directory tree
 
-Validation runs at load time. Drift between rules.json files and enums.py
+Validation runs at load time. Drift between rules files and enums.py
 fails loud (raises ValueError) rather than silently producing wrong scores.
+
+The Evaluator's primary loader is now `Evaluator.from_eval_set_dir()`,
+which reads composites and calls `validate_rules()` on each one's
+`to_rules_dict()` output. The `load_rules_file` / `load_rules_dir`
+functions remain available for tests and ad-hoc rules dicts.
 """
 
 from __future__ import annotations

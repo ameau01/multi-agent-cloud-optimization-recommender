@@ -80,7 +80,7 @@ class TestCliInvocation:
         # bare scenario id (no app- prefix) should fail
         result = _run_eval([
             "--app-name", "08",
-            "--prediction", str(PROJECT_ROOT / "eval-set/expectations/08.json"),
+            "--prediction", str(PROJECT_ROOT / "eval-set/expectations/08/raw_recommendation.json"),
         ])
         assert result.returncode == 2
         assert "app-NN" in result.stderr
@@ -88,7 +88,7 @@ class TestCliInvocation:
     def test_unknown_app_exits_2(self):
         result = _run_eval([
             "--app-name", "app-99",
-            "--prediction", str(PROJECT_ROOT / "eval-set/expectations/08.json"),
+            "--prediction", str(PROJECT_ROOT / "eval-set/expectations/08/raw_recommendation.json"),
         ])
         assert result.returncode == 2
         assert "unknown app" in result.stderr.lower()
@@ -103,7 +103,7 @@ class TestGoldAnswerAllPass:
         four layers pass and stdout says 'All layers passed.' Without
         the key, Shape + Correctness pass and Mid + Rich gracefully
         skip; exit code is still 0 because no layer that ran failed."""
-        gold_path = PROJECT_ROOT / "eval-set/expectations/08.json"
+        gold_path = PROJECT_ROOT / "eval-set/expectations/08/raw_recommendation.json"
         result = _run_eval([
             "--app-name", "app-08",
             "--prediction", str(gold_path),
@@ -120,7 +120,7 @@ class TestGoldAnswerAllPass:
         """app-06 is no_issue_found; Mid + Rich short-circuit (the
         scenario's own short_circuit rule, independent of judge
         availability). Shape and Correctness still pass."""
-        gold_path = PROJECT_ROOT / "eval-set/expectations/06.json"
+        gold_path = PROJECT_ROOT / "eval-set/expectations/06/raw_recommendation.json"
         result = _run_eval([
             "--app-name", "app-06",
             "--prediction", str(gold_path),
@@ -201,7 +201,7 @@ class TestCrossAppMismatch:
         """Feed app-06's gold (no_issue_found) against app-08's rules
         (issue_found / database). Correctness should fail because the
         finding_type mismatches."""
-        gold06 = PROJECT_ROOT / "eval-set/expectations/06.json"
+        gold06 = PROJECT_ROOT / "eval-set/expectations/06/raw_recommendation.json"
         result = _run_eval([
             "--app-name", "app-08",
             "--prediction", str(gold06),
