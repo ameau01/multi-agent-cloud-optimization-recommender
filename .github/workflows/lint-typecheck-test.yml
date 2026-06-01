@@ -1,33 +1,34 @@
-name: CI
-
+name: Lint, Type-check & Test
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@v5
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
+        uses: astral-sh/setup-uv@v6
       - name: Install dependencies
         run: uv sync
-
       - name: Run linting (ruff)
         run: uv run ruff check .
-
       - name: Run type checking (mypy)
         run: uv run mypy src
-
       - name: Run tests
         run: uv run pytest -q --junitxml=test-results.xml
-
-      - name: Test Summary
+      - name: Test summary
         uses: test-summary/action@v2
         if: always()
         with:
           paths: "test-results.xml"
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results.xml
