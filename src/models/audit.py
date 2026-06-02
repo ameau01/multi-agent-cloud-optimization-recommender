@@ -1,15 +1,17 @@
 """Pydantic models for the audit trail.
 
-Two top-level record types map 1:1 to the two SQLite tables documented
+Three top-level record types map 1:1 to the three SQLite tables documented
 in `docs/audit-trail.md`:
 
-  - `AuditRecord` -> audit_records table (the reasoning trail)
+  - `AuditRecord`     -> audit_records table (the reasoning trail)
+  - `HarnessRecord`   -> harness_trail table (enforcement events)
   - `InternalOpRecord` -> internal_ops table (eval, render — internal)
 
 Each record's `content` field is a typed Pydantic sub-model whose shape
-is selected by `type`. The content classes are defined below in two
+is selected by `type`. The content classes are defined below in four
 sections (decision-category content, evidence-category content) for
-audit_records, and a third section for internal_ops content.
+audit_records, a section for internal_ops content, and a fourth section
+for harness_trail content.
 
 The store layer accepts records as raw dicts at the wire (so producers
 can use simple JSON-able payloads) and validates them against these
@@ -17,7 +19,7 @@ models on insert. Read paths return typed instances; queries that don't
 care about content can keep it opaque.
 
 See `docs/audit-trail.md` for the column-level schema and the rationale
-for the two-table split.
+for the three-table split.
 """
 
 from __future__ import annotations
@@ -29,11 +31,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import (
     AgentName,
+    HarnessName,
+    HarnessRecordType,
     OpSubType,
     OpType,
     RecordCategory,
     RecordType,
     Tier,
+    Verdict,
 )
 
 
@@ -126,19 +131,6 @@ class RecommendationContent(BaseModel):
     import risk) and to let the audit store remain agnostic to schema
     changes in Composite."""
     composite: dict[str, Any]
-    evidence_refs: list[int] = Field(default_factory=list)
-    model_config = _LenientConfig
-
-
-class GateVerdictContent(BaseModel):
-    """content for type='gate_verdict'. Action Harness pass/fail.
-    Emitted by the future Action Harness — schema declared now so the
-    store accepts it when the harness phase lands."""
-    well_formedness_verdict: str | None = None
-    evidence_completeness_verdict: str | None = None
-    severity_classification: str | None = None
-    duplication_check_result: str | None = None
-    overall_verdict: str                # "pass" | "flagged" | "rejected"
     evidence_refs: list[int] = Field(default_factory=list)
     model_config = _LenientConfig
 
@@ -239,7 +231,85 @@ class ReportRenderContent(BaseModel):
 
 
 # ============================================================
-# Section 4 — Base record models (one row each)
+# Section 4 — Harness_trail content models
+# ============================================================
+# Harness events split into four categories distinguished by the
+# `type` column. Finer-grained sub-checks (which input check failed,
+# which gate field failed) live in `content.check_name` rather than
+# expanding the type vocabulary — that keeps the trail readable as a
+# verdict stream without exploding the enum surface.
+
+
+class InputValidationContent(BaseModel):
+    """content for type='input_validation'. The Input Harness records
+    one of these per validation check it runs on the ingest bundle.
+
+    `check_name` distinguishes the specific check (e.g. 'trigger_legitimacy',
+    'schema_conformance', 'timestamp_continuity', 'cross_tier_alignment').
+    `details` carries the check-specific payload (the offending field, the
+    expected vs actual values, etc.).
+    """
+    check_name: str
+    application_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    failure_reason: str | None = None
+    model_config = _LenientConfig
+
+
+class ToolCallPolicyCheckContent(BaseModel):
+    """content for type='tool_call_policy_check'. The Action Harness
+    records one of these per tool call it sees.
+
+    `related_event_id` on the parent HarnessRecord points to the
+    audit_records.id of the tool_call event (when permitted) — for
+    rejected calls there is no audit_records entry, so related_event_id
+    is NULL and this harness_trail row is the only trace.
+    """
+    agent: AgentName
+    tool_name: str
+    tier_scope: Tier | None = None      # tier the agent is scoped to (None for cross-tier callers)
+    arguments_snapshot: dict[str, Any] = Field(default_factory=dict)
+    rejection_reason: str | None = None  # populated when verdict='rejected'
+    model_config = _LenientConfig
+
+
+class GateVerdictContent(BaseModel):
+    """content for type='gate_verdict'. Action Harness final-recommendation
+    gate. One row per recommendation that reaches the gate.
+
+    Each sub-check carries its own verdict so a reviewer can see which
+    aspect failed. `overall_verdict` matches the parent HarnessRecord's
+    `verdict` column.
+    """
+    target_record_id: int               # audit_records.id of the recommendation
+    well_formedness_verdict: Verdict | None = None
+    evidence_completeness_verdict: Verdict | None = None
+    severity_classification: str | None = None  # "low" | "medium" | "high"
+    duplication_check_result: Verdict | None = None
+    overall_verdict: Verdict
+    rejection_reason: str | None = None
+    model_config = _LenientConfig
+
+
+class ReasoningCheckContent(BaseModel):
+    """content for type='reasoning_check'. The Reasoning Harness records
+    one of these per structured-output pre-emit check (evidence_refs
+    minimum count, finding_type in the three-valued set, confidence
+    breakdown shape, and so on).
+
+    `check_name` distinguishes the specific check. `target_event_type`
+    names the audit_records event this check applies to (e.g.
+    'specialist_finding', 'evaluator_record').
+    """
+    check_name: str
+    target_event_type: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    failure_reason: str | None = None
+    model_config = _LenientConfig
+
+
+# ============================================================
+# Section 5 — Base record models (one row each)
 # ============================================================
 
 
@@ -253,6 +323,34 @@ class AuditRecord(BaseModel):
     agent: AgentName | None = None
     content: dict[str, Any]             # one of the *Content classes above
     emitted_at: datetime | None = None  # populated by SQLite default
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class HarnessRecord(BaseModel):
+    """One row in the harness_trail table. An enforcement event.
+
+    Substance vs enforcement:
+      - When the Action Harness *allows* a tool call, the tool_call +
+        observation rows go into audit_records (the substance) and a
+        tool_call_policy_check row goes into harness_trail with
+        `related_event_id` pointing to the audit tool_call row.
+      - When the Action Harness *rejects* a tool call, there is no
+        audit_records entry. The rejection lives only here, with
+        `related_event_id` NULL.
+
+    parent_id is the self-FK for chaining related harness checks (e.g.
+    a gate_verdict whose sub-checks are individual rows).
+    """
+    id: int | None = None
+    review_cycle_id: str
+    parent_id: int | None = None
+    related_event_id: int | None = None  # FK reference into audit_records.id
+    harness: HarnessName
+    type: HarnessRecordType
+    verdict: Verdict
+    content: dict[str, Any]              # one of the harness *Content classes above
+    emitted_at: datetime | None = None
 
     model_config = ConfigDict(extra="forbid")
 

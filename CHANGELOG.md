@@ -76,5 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - update src/models/enum.py for common enum.
 
 ### Documentations
-- `docs\audit-trail.md`
+- `docs/audit-trail.md`
+
+## [ACTION AND INPUT HARNESS] implementation
+### Added 
+- src/harnesses
+
+### Changed
+- update src/audit to have new table for harness audit trail
+
+### Documentations
+- `docs/audit-trail.md`, `docs/harnesses.md`
+
 - 

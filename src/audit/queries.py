@@ -4,15 +4,22 @@ All functions take an `AuditStore` and return typed Pydantic models —
 never raw rows. They never write. The write path lives in
 `store.py`.
 
-Two key reads support the two reports:
+Key reads:
 
   - `get_decision_chain(start_record_id)` — recursive CTE walks parent_id
-    backward, returning the chain of decision-category records that led
-    to `start_record_id`. Powers Report 1 (key-decision traceability).
+    backward over `audit_records`, returning the chain of decision-category
+    records that led to `start_record_id`. Powers the key-decision report.
   - `get_evidence_consumers(evidence_record_id)` — uses SQLite's
     `json_each` to find every decision whose `content.evidence_refs`
-    array contains the given evidence id. Powers Report 2 (evidence
-    traceability, forward direction).
+    array contains the given evidence id. Powers the evidence-trace report.
+  - `get_harness_events_for_cycle(cycle_id)` — every harness_trail row
+    for a cycle, in order. Powers harness reporting.
+  - `get_harness_events_for_audit_record(audit_record_id)` — jump from
+    a substance event (e.g. a tool_call) to the harness verdict that
+    covered it. The parallel-chain query.
+  - `get_rejected_tool_calls_for_cycle(cycle_id)` — surfaces the things
+    the agent tried that the Action Harness blocked. These have no
+    audit_records counterpart; their presence here is the only trace.
 
 The CTE chooses `parent_id` walking over Python recursion because it
 keeps the entire traversal inside the database engine, returns results
@@ -27,8 +34,8 @@ from typing import Any
 
 from sqlalchemy import select, text
 
-from ..models.audit import AuditRecord, InternalOpRecord
-from .schema import audit_records, internal_ops
+from ..models.audit import AuditRecord, HarnessRecord, InternalOpRecord
+from .schema import audit_records, harness_trail, internal_ops
 from .store import AuditStore
 
 
@@ -180,6 +187,90 @@ def find_recommendation_for_cycle(
 
 
 # ============================================================
+# Harness trail reads
+# ============================================================
+def get_harness_events_for_cycle(
+    store: AuditStore,
+    cycle_id: str,
+) -> list[HarnessRecord]:
+    """Return every harness_trail event for a cycle, ordered by id.
+    Powers harness reporting — "what did the harnesses verify or reject
+    on this review?"
+    """
+    with store.engine.connect() as conn:
+        rows = conn.execute(
+            select(harness_trail)
+            .where(harness_trail.c.review_cycle_id == cycle_id)
+            .order_by(harness_trail.c.id)
+        ).mappings().all()
+    return [_row_to_harness_record(r) for r in rows]
+
+
+def get_harness_events_for_audit_record(
+    store: AuditStore,
+    audit_record_id: int,
+) -> list[HarnessRecord]:
+    """Return the harness verdicts that reference a specific audit_records
+    row (via harness_trail.related_event_id).
+
+    Use case: starting from a tool_call event in audit_records, find the
+    Action Harness's policy-check verdict for it. Most events have either
+    zero or one matching harness row, but the API returns a list to keep
+    the contract permissive.
+    """
+    with store.engine.connect() as conn:
+        rows = conn.execute(
+            select(harness_trail)
+            .where(harness_trail.c.related_event_id == audit_record_id)
+            .order_by(harness_trail.c.id)
+        ).mappings().all()
+    return [_row_to_harness_record(r) for r in rows]
+
+
+def get_rejected_tool_calls_for_cycle(
+    store: AuditStore,
+    cycle_id: str,
+) -> list[HarnessRecord]:
+    """Return Action Harness tool-call rejections for a cycle. These
+    have no audit_records counterpart by design — the rejection lives
+    only in harness_trail. This is the query that makes that property
+    visible: 'show me the things the agent tried but was not allowed
+    to do.'"""
+    with store.engine.connect() as conn:
+        rows = conn.execute(
+            select(harness_trail)
+            .where(
+                (harness_trail.c.review_cycle_id == cycle_id)
+                & (harness_trail.c.harness == "action")
+                & (harness_trail.c.type == "tool_call_policy_check")
+                & (harness_trail.c.verdict == "rejected")
+            )
+            .order_by(harness_trail.c.id)
+        ).mappings().all()
+    return [_row_to_harness_record(r) for r in rows]
+
+
+def find_gate_verdict_for_cycle(
+    store: AuditStore,
+    cycle_id: str,
+) -> HarnessRecord | None:
+    """Return the Action Harness's recommendation-gate verdict for the
+    cycle, or None if the gate hasn't run yet. There is at most one
+    gate_verdict per cycle (one recommendation per cycle); the most
+    recent row is returned if anything ever produces more than one."""
+    with store.engine.connect() as conn:
+        row = conn.execute(
+            select(harness_trail)
+            .where(
+                (harness_trail.c.review_cycle_id == cycle_id)
+                & (harness_trail.c.type == "gate_verdict")
+            )
+            .order_by(harness_trail.c.id.desc())
+        ).mappings().fetchone()
+    return _row_to_harness_record(row) if row else None
+
+
+# ============================================================
 # Row -> Pydantic helpers
 # ============================================================
 def _row_to_audit_record(row) -> AuditRecord:
@@ -204,6 +295,20 @@ def _row_to_op_record(row) -> InternalOpRecord:
         target_record_id=row["target_record_id"],
         parent_id=row["parent_id"],
         type=row["type"],
+        content=_content(row["content"]),
+        emitted_at=row["emitted_at"],
+    )
+
+
+def _row_to_harness_record(row) -> HarnessRecord:
+    return HarnessRecord(
+        id=row["id"],
+        review_cycle_id=row["review_cycle_id"],
+        parent_id=row["parent_id"],
+        related_event_id=row["related_event_id"],
+        harness=row["harness"],
+        type=row["type"],
+        verdict=row["verdict"],
         content=_content(row["content"]),
         emitted_at=row["emitted_at"],
     )

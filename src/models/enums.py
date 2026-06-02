@@ -8,6 +8,8 @@ This is the single home for type vocabulary used by multiple subsystems:
     evaluator, and audit event content.
   - `AgentName` — the 12 agents and harnesses that can emit audit records.
   - `RecordCategory`, `RecordType` — audit-trail event taxonomy.
+  - `HarnessName`, `Verdict`, `HarnessRecordType` — harness_trail vocabulary
+    (the second table, recording enforcement events).
 
 The frozenset-based runtime universes (FINDING_TYPES, PRIMARY_TIERS, etc.)
 that the evaluator's rules-validator uses live in `src/evaluator/enums.py`
@@ -131,13 +133,53 @@ RecordType = Literal[
     "specialist_finding",         # a tier specialist's verdict
     "evaluator_record",           # cross-tier evaluator synthesis
     "recommendation",             # final Composite emitted by the cycle
-    "gate_verdict",               # Action Harness pass/fail (future)
     "hitl_decision",              # human approve/reject/defer (future)
     # ---- evidence-category types ----
     "tool_call",                  # MCP tool invocation
     "observation",                # tool result (the data the agent saw)
     "correlation_observation",    # specific cross-tier correlation cited
     "infrastructure_fact",        # specific configuration or terraform fact
+]
+# Note: gate_verdict moved to HarnessRecordType (harness_trail table) —
+# it is an enforcement event, not a reasoning event. See docs/audit-trail.md
+# "substance vs enforcement" split.
+
+
+# ============================================================
+# HarnessName — which harness emitted a harness_trail event
+# ============================================================
+# The Input Harness validates the ingest bundle, the Action Harness
+# scopes tool calls and gates the final recommendation, and the
+# Reasoning Harness enforces structured output and evidence-binding.
+# audit_harness is intentionally absent: the audit trail is not itself
+# a harness writer here, it is the substrate.
+HarnessName = Literal["input", "action", "reasoning"]
+
+
+# ============================================================
+# Verdict — the four outcomes a harness check can record
+# ============================================================
+# - "passed"   : check succeeded; no concern
+# - "rejected" : check failed and the underlying action was blocked
+# - "flagged"  : check raised a concern but did not block (HITL signal)
+# - "info"     : informational record, no pass/fail semantic (e.g. a
+#                trigger ingest summary record)
+Verdict = Literal["passed", "rejected", "flagged", "info"]
+
+
+# ============================================================
+# HarnessRecordType — harness_trail.type vocabulary
+# ============================================================
+# One row per enforcement event. The four broad categories below are
+# distinguished by the writing harness; finer distinctions (which check
+# inside an input validation, which gate field failed) live in the
+# `content` payload's `check_name` field rather than expanding this
+# Literal.
+HarnessRecordType = Literal[
+    "input_validation",           # Input Harness — schema, completeness, trigger
+    "tool_call_policy_check",     # Action Harness — per-call scope verdict
+    "gate_verdict",               # Action Harness — final recommendation gate
+    "reasoning_check",            # Reasoning Harness — structured-output pre-emit
 ]
 
 
@@ -180,3 +222,6 @@ AGENT_NAMES: frozenset[str] = frozenset(get_args(AgentName))
 RECORD_CATEGORIES: frozenset[str] = frozenset(get_args(RecordCategory))
 RECORD_TYPES: frozenset[str] = frozenset(get_args(RecordType))
 OP_TYPES: frozenset[str] = frozenset(get_args(OpType))
+HARNESS_NAMES: frozenset[str] = frozenset(get_args(HarnessName))
+VERDICTS: frozenset[str] = frozenset(get_args(Verdict))
+HARNESS_RECORD_TYPES: frozenset[str] = frozenset(get_args(HarnessRecordType))

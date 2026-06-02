@@ -1,14 +1,19 @@
 """SQLAlchemy Core table definitions for the audit trail.
 
-Two tables, both append-only:
+Three tables, all append-only:
 
   - `audit_records` — the reasoning trail (one row per event in a review
-    cycle). Polymorphic via the `type` column; categorized for the two
-    reports via `category`.
+    cycle). Polymorphic via the `type` column; categorized for the
+    decision-vs-evidence reports via `category`.
+  - `harness_trail` — enforcement events (Input Harness validations,
+    Action Harness policy checks and gate verdicts, Reasoning Harness
+    pre-emit checks). When a tool call is rejected, this is the only
+    table that records it — its absence from audit_records is itself
+    an audit signal.
   - `internal_ops` — operations performed on a completed cycle's
     recommendation (eval runs, report renders). Separate audience
     (developers debugging the system) from the main audit trail
-    (governance reviewers).
+    (human reviewers).
 
 See `docs/audit-trail.md` for the column-level schema and rationale.
 
@@ -19,6 +24,10 @@ Indexes:
   - `cycle_lookup`: covers "all events for cycle X" queries.
   - `parent_walk`: supports the recursive CTE walking parent_id chains.
   - `category_type`: supports filtering by (category, type) for reports.
+  - `harness_cycle_lookup`: harness_trail per-cycle scan.
+  - `harness_related_event`: jump from an audit_record id to its harness
+    verdict (e.g. "what policy check covered tool_call 47?").
+  - `harness_parent_walk`: support self-FK chains.
 """
 
 from __future__ import annotations
@@ -64,6 +73,48 @@ audit_records = Table(
     CheckConstraint(
         "category IN ('decision', 'evidence')",
         name="ck_audit_records_category",
+    ),
+)
+
+
+# ============================================================
+# harness_trail — enforcement events from the three harnesses
+# ============================================================
+# Distinct table from audit_records: the substance the agent worked
+# on (tool calls, findings, decisions) lives there; the enforcement
+# decisions (what was checked, allowed, or rejected) live here. A
+# rejected tool call has only a harness_trail row — its absence from
+# audit_records is the audit signal. See docs/audit-trail.md.
+harness_trail = Table(
+    "harness_trail",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("review_cycle_id", String, nullable=False),
+    Column("parent_id", Integer, ForeignKey("harness_trail.id"), nullable=True),
+    # related_event_id is a denormalized reference into audit_records.id.
+    # Intentionally NOT a FK constraint so a rejected tool call (no audit
+    # row exists) can still record related_event_id=NULL without violating
+    # referential integrity, and so PRAGMA foreign_keys=ON does not need
+    # cross-table awareness here. Application-level discipline is sufficient:
+    # AuditStore is the sole writer of both tables.
+    Column("related_event_id", Integer, nullable=True),
+    Column("harness", String, nullable=False),
+    Column("type", String, nullable=False),
+    Column("verdict", String, nullable=False),
+    Column("content", JSON, nullable=False),
+    Column(
+        "emitted_at",
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+    ),
+    CheckConstraint(
+        "harness IN ('input', 'action', 'reasoning')",
+        name="ck_harness_trail_harness",
+    ),
+    CheckConstraint(
+        "verdict IN ('passed', 'rejected', 'flagged', 'info')",
+        name="ck_harness_trail_verdict",
     ),
 )
 
@@ -133,4 +184,27 @@ Index(
     "ops_by_target_cycle",
     internal_ops.c.target_cycle_id,
     internal_ops.c.op_id,
+)
+
+# harness_trail: per-cycle scan covers "show me everything the harnesses
+# verified in cycle X."
+Index(
+    "harness_cycle_lookup",
+    harness_trail.c.review_cycle_id,
+    harness_trail.c.id,
+)
+
+# harness_trail: jump from an audit_records row to the harness verdict
+# that covered it. Powers the "for this tool_call, what did the Action
+# Harness decide?" query.
+Index(
+    "harness_related_event",
+    harness_trail.c.related_event_id,
+)
+
+# harness_trail: support the self-FK chains (a gate_verdict whose
+# sub-checks chain via parent_id).
+Index(
+    "harness_parent_walk",
+    harness_trail.c.parent_id,
 )

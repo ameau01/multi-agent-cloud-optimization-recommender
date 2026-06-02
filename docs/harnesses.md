@@ -179,6 +179,8 @@ This is what "the audit trail is the visual hero" means in practice. The trail i
 - **Severity classification** (recommendations classified low/medium/high for HITL routing, higher severity gets more prominent placement and stricter human-review expectations).
 - **Duplication check** (a recommendation that exactly matches a recent prior recommendation gets flagged so the human sees the repetition).
 
+Tool calls the harness allows land their `tool_call` + `observation` events in `audit_records`; the policy-check verdict and the recommendation-gate verdict land in `harness_trail`. A rejected tool call has no `audit_records` entry — the rejection lives only in `harness_trail`.
+
 ### Why intentionally narrow
 
 In a system that actually modifies infrastructure, the Action Harness would be much larger (executable actions, API validation, rollback paths). None of that applies here. This system is purely a recommender under HITL, so the harness stays deliberately narrow.
@@ -219,6 +221,8 @@ Every record carries a stable identifier, the agent or harness that emitted it, 
 
 **Storage.** SQLite for the portfolio implementation, with the schema designed so Postgres is a drop-in upgrade for production.
 
+The audit trail spans three append-only tables in one SQLite file: `audit_records` for the agent's reasoning, `harness_trail` for what the harnesses verified or rejected, and `internal_ops` for post-hoc operations like eval scoring. The split keeps each table focused on one audience; full schema lives in [`audit-trail.md`](audit-trail.md).
+
 ### Why this is its own harness
 
 Treating the audit trail as its own architectural component, rather than logging bolted onto each agent, reflects how production systems are actually built. The audit trail is the artifact a compliance or optimization reviewer engages with. It deserves its own schema, its own write discipline, and its own correctness story.
@@ -235,7 +239,7 @@ It is also the artifact that turns "I built an agent system" into "I built an ag
 
 The harnesses are independent in scope but cooperative in practice. A representative interaction:
 
-A Compute Analyst invokes a tool call to detect threshold breaches on `cpu_p95`. The Action Harness validates that this read operation is in the Compute Analyst's scope (it is). The tool call runs and returns results. The Reasoning Harness requires that any conclusion citing this tool call include the call as an `evidence_ref`. The Persistent Action Record logs the tool call, the parameters, the result, and (when the specialist concludes) the finding that cites it.
+A Compute Analyst invokes a tool call to detect threshold breaches on `cpu_p95`. The Action Harness validates that this read operation is in the Compute Analyst's scope (it is). The tool call runs and returns results. The Reasoning Harness requires that any conclusion citing this tool call include the call as an `evidence_ref`. The Persistent Action Record logs the tool call's intent and result to `audit_records` (the substance the agent saw), the Action Harness's policy-check verdict to `harness_trail` (the enforcement record), and when the specialist concludes, the finding citing this evidence lands back in `audit_records`. Three writes across two tables, one tool call.
 
 Four harnesses, one tool call, four properties enforced: scope (Action Harness), evidence-binding (Reasoning Harness), audit (Persistent Action Record), and, implicitly, the assurance that the tool call's inputs were valid (Input Harness validated them at bundle ingest).
 

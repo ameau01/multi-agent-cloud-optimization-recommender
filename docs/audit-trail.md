@@ -8,6 +8,8 @@ This doc covers what the audit trail captures, how it supports replay, why the s
 
 Every significant event in a review cycle is a record. The trail is rich enough that a reviewer reading it should be able to reconstruct exactly what the system did and why.
 
+These records split across three tables. The reasoning events (Supervisor decisions, ReAct steps, specialist findings, evaluator records, recommendation, HITL decisions) land in `audit_records` — the agent's story for the human reviewer. The enforcement events (Input Harness validations, Action Harness policy checks and gate verdicts, Reasoning Harness checks) land in `harness_trail`. Post-hoc scoring runs against a completed cycle's recommendation land in `internal_ops`. See "Storage shape" below for the per-table schemas.
+
 **Trigger and ingest records** When a review was requested, by what trigger, against which application, with what scenario hash.
 
 **System Mapper records** The architecture model produced for this review (tiers, dependencies, analysis plan). Any parsing diagnostics from Terraform.
@@ -42,8 +44,7 @@ Records are never updated or deleted. This is the property that makes "replayabl
 
 If a recommendation needs to be corrected, for example, the human reviewer rejects it and provides feedback, the correction is a **new record** that references the original. The historical state at any past point in time is exactly the records that existed up to that point. Nothing is rewritten retroactively.
 
-This discipline matters because the alternative (mutable records) makes the audit trail unreliable for governance purposes. A governance reviewer asking "what did the system recommend three months ago?"
-
+This discipline matters because the alternative (mutable records) makes the audit trail unreliable for accountability. A reviewer asking "what did the system recommend three months ago?" must get the same answer today, tomorrow, and a year from now.
 
 In storage terms, append-only is enforced both by schema discipline (no `UPDATE` paths in the data access layer) and by application discipline (corrections produce new records). For the portfolio in SQLite, this is straightforward; for a production deployment in Postgres, the same pattern applies.
 
@@ -59,6 +60,8 @@ What this means in practice:
 - Every specialist finding has explicit citations to the ReAct observations it relied on (via `evidence_refs`).
 - Every ReAct step has an `observation_id` so the finding's citations resolve to lookable records.
 - Every tool call records the scenario hash and exact parameters used.
+
+The `harness_trail` provides a parallel enforcement chain: for any tool call in `audit_records`, the corresponding policy-check record in `harness_trail` tells you whether the call was permitted and why. A rejected tool call has only a `harness_trail` entry — its absence from `audit_records` is itself the audit signal that "this was attempted but not allowed."
 
 A developer or reviewer can walk the chain forward or backward. The system's reasoning is not a black box; it is a navigable graph.
 
@@ -92,11 +95,17 @@ A vector database **would** be appropriate for a different concern, semantic ret
 
 ## Storage shape
 
-Two append-only SQLite tables in a single file. The split is deliberate: the first table is the artifact a governance reviewer reads (the reasoning trail); the second is for developer-facing debugging of post-hoc operations (eval runs, report renders). Mixing them would dilute the main story.
+Three append-only SQLite tables in a single file. Each has a distinct audience:
+
+- `audit_records` — the agent's reasoning story, for the human reviewer
+- `harness_trail` — what the harnesses verified or rejected, for harness reporting
+- `internal_ops` — post-hoc operations on completed cycles, for developers debugging
+
+Splitting them keeps each table focused on one story for one audience. Mixing them would dilute the reasoning trail with enforcement noise and operational logs.
 
 ### `audit_records` — the reasoning trail
 
-One polymorphic table. Every event inside a review cycle is a row. The type field discriminates; the category field tells the two reports (decision trace, evidence trace) which records to walk.
+One polymorphic table. Every event inside a review cycle is a row. The `type` field discriminates the concrete event; `category` partitions into decision events (the spine of the trail) and evidence events (the observations decisions cite).
 
 ```text
 audit_records
@@ -118,7 +127,7 @@ Indexes:
 - `UNIQUE INDEX one_end_per_cycle ON audit_records(review_cycle_id) WHERE type = 'cycle_completed'` — and one completion per cycle.
 - `INDEX cycle_lookup ON audit_records(review_cycle_id, id)` — covers "all events for cycle X" queries.
 - `INDEX parent_walk ON audit_records(parent_id)` — supports the recursive CTE.
-- `INDEX category_type ON audit_records(category, type)` — supports the two reports.
+- `INDEX category_type ON audit_records(category, type)` — supports decision-vs-evidence filtering.
 
 ### Cycle lifecycle modeled as events
 
@@ -126,32 +135,29 @@ There is no separate "reviews" table. A cycle exists when its `cycle_started` ro
 
 This preserves strict append-only discipline: nothing is ever UPDATEd. A re-run is a new cycle (new `cycle_id`, new `cycle_started` row). Historic cycles are immutable. Cycle status is a query, not a state — derived from the existence of `cycle_completed`.
 
-### Record taxonomy
+### `harness_trail` — what the harnesses verified or rejected
 
-**Decision-category** types (the chain of choices the system made — the spine of Report 1):
+The second table records *enforcement events*: validations from the Input Harness, policy checks and gate verdicts from the Action Harness, and pre-emit checks from the Reasoning Harness. Kept separate from `audit_records` so the agent's reasoning story stays focused on substance — what the agent *did* — while `harness_trail` tells the parallel story of what was *verified or prevented*.
 
-- `cycle_started`, `cycle_completed` — the begin and end tags
-- `review_request` — the ingest trigger
-- `supervisor_decision` — which specialists were invoked, retries, escalations
-- `thought` — an agent's reasoning step inside a ReAct loop
-- `specialist_finding` — a tier specialist's verdict
-- `evaluator_record` — the cross-tier evaluator's synthesis
-- `recommendation` — the final composite emitted by the cycle
-- `gate_verdict` — Action Harness pass/fail (emitted in a future phase)
-- `hitl_decision` — human approve/reject/defer (future)
+```text
+harness_trail
+  id                INTEGER PRIMARY KEY AUTOINCREMENT
+  review_cycle_id   TEXT NOT NULL
+  parent_id         INTEGER              -- self-FK; chains of harness checks
+  related_event_id  INTEGER              -- denormalized ref to audit_records.id
+  harness           TEXT NOT NULL        -- 'input' | 'action' | 'reasoning'
+  type              TEXT NOT NULL
+  verdict           TEXT NOT NULL        -- 'passed' | 'rejected' | 'flagged' | 'info'
+  content           JSON NOT NULL
+  emitted_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+  FOREIGN KEY (parent_id) REFERENCES harness_trail(id)
+```
 
-**Evidence-category** types (the observed facts decisions cite — the leaves of Report 2):
-
-- `tool_call` — an MCP call (parameters echoed)
-- `observation` — the tool result, the actual data the agent saw
-- `correlation_observation` — a specific correlation record cited
-- `infrastructure_fact` — a specific configuration or terraform finding cited
-
-A decision record's `content.evidence_refs: list[int]` carries the ids of evidence records it cites — this is the many-to-many citation mechanism. Forward citation queries use SQLite's `json_each(content, '$.evidence_refs')` to expand the array into rows and join cleanly; this avoids the `LIKE '%id%'` substring trap (which mis-matches id 5 against ids 15, 25, 50, etc.).
+The architectural property worth seeing: when the Action Harness allows a tool call, the resulting tool call and observation land in `audit_records` (the substance). The harness's policy-check verdict lands in `harness_trail` (the enforcement decision). When the Action Harness *rejects* a tool call, there is no `audit_records` entry — the rejection lives only in `harness_trail`. The audit trail shows what the agent accomplished; the harness trail shows what was prevented.
 
 ### `internal_ops` — operations on a completed cycle
 
-Separate table, separate audience. Where `audit_records` is the deliverable, `internal_ops` is for developers debugging the system — eval runs, report renders, and similar post-hoc operations land here so the main trail stays focused on the reasoning story. Same DB file; same append-only discipline.
+Third table, third audience. Where `audit_records` is the deliverable and `harness_trail` is the enforcement record, `internal_ops` is for developers debugging the system — eval runs, report renders, and similar post-hoc operations land here so the main trail stays focused on the reasoning story. Same DB file; same append-only discipline.
 
 ```text
 internal_ops
@@ -176,7 +182,7 @@ Multiple evaluations against the same recommendation are supported (prompt tunin
 
 ### JSON content payloads
 
-Both tables store payloads in a `content JSON` column. The Pydantic content models in `src/models/audit.py` define the per-type shape (one class per record `type`). Pydantic validates the shape at write time; at read time, queries either inspect raw JSON via SQLite's `json_extract`/`json_each` or hydrate back into the typed model for application-level use. This is pragmatic for SQLite and migrates cleanly to Postgres `jsonb` or fully-typed columns later.
+All three tables store payloads in a `content JSON` column. The Pydantic content models in `src/models/audit.py` define the per-type shape (one class per record `type`). Pydantic validates the shape at write time; at read time, queries either inspect raw JSON via SQLite's `json_extract`/`json_each` or hydrate back into the typed model for application-level use. This is pragmatic for SQLite and migrates cleanly to Postgres `jsonb` or fully-typed columns later.
 
 ### Storage engine and file location
 
@@ -190,7 +196,7 @@ SQLite for the portfolio. The database file location is configured via the `AUDI
 
 **It is not a knowledge base** Agents do not query the audit trail as part of their reasoning. They reason against the scenario data they pull via MCP. The audit trail exists for human-facing observability and replay, not for agent memory.
 
-**It is not a metrics store** Operational metrics (latency, error rates, LLM token counts) may flow into a separate observability stack. The audit trail is for governance-facing reasoning traceability, which is a different artifact
+**It is not a metrics store** Operational metrics (latency, error rates, LLM token counts) may flow into a separate observability stack. The audit trail is for human-facing reasoning traceability, which is a different artifact.
 
 Conflating any of these with the audit trail's purpose would dilute it. Keeping its scope clean is part of the architectural signal.
 
@@ -198,4 +204,4 @@ Conflating any of these with the audit trail's purpose would dilute it. Keeping 
 
 The strongest single section of the README is the **audit-trail walkthrough**: pick one scenario, run it through the system, and show every record that was written, in causal order, with the recommendation at the end traceable back through the entire chain. A hiring manager who reads only that section should understand what the project does and why it is worth the engineering depth.
 
-This is what "the audit trail is the artifact a governance reviewer engages with" means. The walkthrough is not a debugging tool. It is the system's primary deliverable to anyone who needs to **understand** a recommendation rather than just consume it.
+This is what "the audit trail is the artifact a reviewer engages with" means. The walkthrough is not a debugging tool. It is the system's primary deliverable to anyone who needs to **understand** a recommendation rather than just consume it.

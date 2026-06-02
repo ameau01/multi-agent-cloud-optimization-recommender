@@ -26,8 +26,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, event, insert, select
 from sqlalchemy.engine import Engine
 
-from ..models.audit import AuditRecord, InternalOpRecord
-from .schema import audit_records, internal_ops, metadata
+from ..models.audit import AuditRecord, HarnessRecord, InternalOpRecord
+from .schema import audit_records, harness_trail, internal_ops, metadata
 
 
 # Default path matches the .hf_cache/ pattern: hidden, project-local,
@@ -186,6 +186,35 @@ class AuditStore:
                     category=record.category,
                     type=record.type,
                     agent=record.agent,
+                    content=record.content,
+                )
+            )
+            return _row_id(result)
+
+    # --------------------------------------------------------
+    # Harness trail (harness_trail table)
+    # --------------------------------------------------------
+    def add_harness_event(self, record: HarnessRecord) -> int:
+        """Append one event to harness_trail. Returns the inserted row id.
+
+        Used by the three harness modules. The record's id and emitted_at
+        fields are ignored (populated by SQLite); the rest are inserted
+        as given.
+
+        Raises pydantic.ValidationError if the record doesn't validate
+        (e.g. unknown harness name, unknown verdict).
+        Raises sqlalchemy.exc.IntegrityError if `parent_id` points to a
+        nonexistent harness_trail row (PRAGMA foreign_keys=ON catches this).
+        """
+        with self._engine.begin() as conn:
+            result = conn.execute(
+                insert(harness_trail).values(
+                    review_cycle_id=record.review_cycle_id,
+                    parent_id=record.parent_id,
+                    related_event_id=record.related_event_id,
+                    harness=record.harness,
+                    type=record.type,
+                    verdict=record.verdict,
                     content=record.content,
                 )
             )
