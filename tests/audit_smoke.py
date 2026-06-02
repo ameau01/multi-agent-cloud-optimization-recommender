@@ -118,7 +118,7 @@ def main() -> int:
 
         store.complete_cycle(cid, final_status="completed",
                               recommendation_record_id=rec_id)
-        print(f"  Cycle complete; 9 records written.")
+        print("  Cycle complete; 9 records written.")
 
         # ---- Record one evaluation ----
         op_id = store.evaluate_recommendation(

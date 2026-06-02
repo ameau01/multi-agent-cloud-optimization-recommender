@@ -22,11 +22,29 @@ designed for.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from sqlalchemy import select, text
 
 from ..models.audit import AuditRecord, InternalOpRecord
 from .schema import audit_records, internal_ops
 from .store import AuditStore
+
+
+def _content(raw: Any) -> dict[str, Any]:
+    """Normalize the `content` column to a dict.
+
+    SQLAlchemy's typed `Table` select (the `select(audit_records)` form)
+    runs the JSON column through its type handler and returns a dict.
+    Raw `text()` queries (used for the recursive CTE in get_decision_chain
+    and the json_each forward walk in get_evidence_consumers) bypass that
+    handler and return the JSON column as a string. This helper handles
+    both shapes so consumers don't have to.
+    """
+    if isinstance(raw, str):
+        return json.loads(raw)
+    return raw
 
 
 # ============================================================
@@ -172,7 +190,7 @@ def _row_to_audit_record(row) -> AuditRecord:
         category=row["category"],
         type=row["type"],
         agent=row["agent"],
-        content=row["content"],
+        content=_content(row["content"]),
         emitted_at=row["emitted_at"],
     )
 
@@ -186,6 +204,6 @@ def _row_to_op_record(row) -> InternalOpRecord:
         target_record_id=row["target_record_id"],
         parent_id=row["parent_id"],
         type=row["type"],
-        content=row["content"],
+        content=_content(row["content"]),
         emitted_at=row["emitted_at"],
     )

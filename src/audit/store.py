@@ -69,6 +69,24 @@ def _new_cycle_id() -> str:
     return f"cycle_{ts}_{suffix}"
 
 
+def _row_id(result) -> int:
+    """Extract the new row's integer id from a single-row INSERT result.
+
+    SQLAlchemy types `Result.inserted_primary_key` as `Row | None`, so
+    mypy can't index it directly without a narrowing check. On a
+    successful single-row INSERT the value is always a non-None Row whose
+    first element is the autoincrement primary key — this helper makes
+    that invariant explicit and raises if the assumption is ever wrong.
+    """
+    pk = result.inserted_primary_key
+    if pk is None:
+        raise RuntimeError(
+            "INSERT did not return a primary key (unexpected for an "
+            "autoincrement INTEGER PRIMARY KEY)"
+        )
+    return int(pk[0])
+
+
 def _new_op_id(op_type: str) -> str:
     """Generate an op_id for internal_ops. Same shape as cycle_id but
     prefixed with the op_type for at-a-glance recognition."""
@@ -171,7 +189,7 @@ class AuditStore:
                     content=record.content,
                 )
             )
-            return int(result.inserted_primary_key[0])
+            return _row_id(result)
 
     def complete_cycle(
         self,
@@ -215,7 +233,7 @@ class AuditStore:
                     content=content,
                 )
             )
-            return int(result.inserted_primary_key[0])
+            return _row_id(result)
 
     # --------------------------------------------------------
     # Internal ops (internal_ops table)
@@ -238,7 +256,7 @@ class AuditStore:
                     content=record.content,
                 )
             )
-            return int(result.inserted_primary_key[0])
+            return _row_id(result)
 
     def evaluate_recommendation(
         self,
@@ -274,7 +292,7 @@ class AuditStore:
                     content=judge_call,
                 )
             )
-            judge_call_id = int(jc_result.inserted_primary_key[0])
+            judge_call_id = _row_id(jc_result)
             conn.execute(
                 insert(internal_ops).values(
                     op_id=op_id,

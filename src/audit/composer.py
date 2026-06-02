@@ -57,7 +57,7 @@ def compose_from_cycle(store: AuditStore, cycle_id: str) -> Composite:
     if rec is None:
         raise ValueError(
             f"No recommendation record found for cycle_id={cycle_id!r}; "
-            f"cannot compose Composite."
+            "cannot compose Composite."
         )
 
     # Hydrate the composite stored in the recommendation event's content.

@@ -69,7 +69,7 @@ def test_store_exposes_no_update_or_delete_methods(store: AuditStore) -> None:
         and any(verb in name.lower() for verb in ("update", "delete", "remove"))
     ]
     assert bad_method_names == [], (
-        f"AuditStore exposes mutation methods which violates append-only "
+        "AuditStore exposes mutation methods which violates append-only "
         f"discipline: {bad_method_names}"
     )
 
