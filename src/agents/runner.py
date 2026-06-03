@@ -138,12 +138,21 @@ def run_cycle(
         terminal = final_state.get("terminal_state") or "completed"
         reason = final_state.get("failure_reason")
         stage = final_state.get("failed_at_stage")
-        store.complete_cycle(
+        cycle_completed_id = store.complete_cycle(
             cycle_id=cycle_id,
             final_status=terminal,
             failure_reason=reason,
             failed_at_stage=stage,
         )
+        # Backfill the orchestration verdict's related_event_id to point
+        # at the cycle_completed row it judged. Mirrors the action +
+        # reasoning backfill pattern via the shared
+        # store.link_harness_to_event helper. None when the
+        # cycle_complete node never ran (uncaught exception earlier in
+        # the graph took the outer-except branch above instead).
+        orch_check_id = final_state.get("last_orchestration_check_id")
+        if orch_check_id is not None:
+            store.link_harness_to_event(orch_check_id, cycle_completed_id)
 
     return cycle_id
 

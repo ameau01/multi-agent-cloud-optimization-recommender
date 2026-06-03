@@ -224,6 +224,38 @@ class AuditStore:
     # --------------------------------------------------------
     # Harness trail (harness_trail table)
     # --------------------------------------------------------
+    def link_harness_to_event(
+        self,
+        harness_record_id: int,
+        audit_record_id: int,
+    ) -> None:
+        """Backfill harness_trail.related_event_id on an already-written
+        harness row to point at the audit_records row it judged.
+
+        This is the single shared backfill helper used by every harness
+        whose check fires before the audit row exists (Reasoning at the
+        Supervisor + System Mapper, Orchestration at cycle completion)
+        and by the Action Harness's tool-call dispatcher (which fires
+        before the tool_call row is written). Centralizing the UPDATE
+        here means there is one place that breaks if the link semantics
+        change, and one obvious symmetry test target.
+
+        Idempotent: re-running with the same arguments is a no-op
+        (UPDATE writes the same value back). Does not validate that
+        either id exists — the FK on harness_trail.parent_id is the
+        only structural constraint, and related_event_id is intentionally
+        a soft reference (no FK) because some harness rows reference
+        records that may not exist when the harness fires (e.g. a
+        rejected reasoning check refers to a payload that was never
+        written).
+        """
+        with self._engine.begin() as conn:
+            conn.execute(
+                harness_trail.update()
+                .where(harness_trail.c.id == harness_record_id)
+                .values(related_event_id=audit_record_id)
+            )
+
     def add_harness_event(self, record: HarnessRecord) -> int:
         """Append one event to harness_trail. Returns the inserted row id.
 

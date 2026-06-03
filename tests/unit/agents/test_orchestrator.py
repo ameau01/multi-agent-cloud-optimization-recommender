@@ -115,6 +115,35 @@ def test_agents_run_with_valid_app_produces_expected_trail(
     assert oc[0].content["target_event_type"] == "cycle_completed"
     assert oc[0].content["details"]["final_status"] == "no_specialists"
 
+    # Phase 11a.5 lock-in: action and reasoning verdicts carry a
+    # non-null related_event_id pointing at the audit row they judged.
+    # Backfilled by store.link_harness_to_event from dispatch.py
+    # (action checks) and supervisor.py + system_mapper.py (reasoning
+    # checks).
+    #
+    # Two exemptions in this assertion:
+    #
+    #   - input_validation: the Input Harness validates trigger
+    #     arguments at cycle start, with no antecedent audit row to
+    #     link to. Future work could point it at the cycle_started
+    #     row, but that's a separate concern and was not part of the
+    #     11a.5 asymmetry the harness review flagged.
+    #
+    #   - orchestration_check: only the runner does the backfill (it
+    #     writes cycle_completed and then links the verdict to it).
+    #     This test invokes the graph directly, bypassing the runner,
+    #     so the orchestration row stays unlinked here. The runner
+    #     path is exercised in tests/integration/agents/
+    #     test_agents_end_to_end.py, which asserts all 8 rows backfill
+    #     correctly.
+    for h in h_events:
+        if h.type in ("input_validation", "orchestration_check"):
+            continue
+        assert h.related_event_id is not None, (
+            f"harness row id={h.id} type={h.type} has no "
+            f"related_event_id; backfill missing"
+        )
+
     # Bug-fix lock-in (Phase 11a.3 follow-up): the system_mapper_output
     # row cites the observation rows it was derived from. With two MCP
     # fetches (get_scenario_metadata + get_terraform), evidence_refs has

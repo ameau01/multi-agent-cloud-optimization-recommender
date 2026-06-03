@@ -112,6 +112,20 @@ def test_agents_run_on_app_08_produces_expected_trail() -> None:
     assert len(h_events) == 8
     assert all(h.verdict == "passed" for h in h_events)
 
+    # Phase 11a.5 lock-in: action, reasoning, and orchestration verdicts
+    # all carry a non-null related_event_id (backfilled via
+    # store.link_harness_to_event). The integration test exercises the
+    # runner's backfill path against the real graph; that's the only
+    # place orchestration verdicts get linked (the unit-level
+    # test_orchestrator.py bypasses the runner and exempts the row).
+    # input_validation is exempt — see the unit test for the rationale.
+    for h in h_events:
+        if h.type == "input_validation":
+            continue
+        assert h.related_event_id is not None, (
+            f"harness row id={h.id} type={h.type} missing related_event_id"
+        )
+
     # No recommendation row yet (skeleton mode invokes zero specialists).
     assert find_recommendation_for_cycle(store, cycle_id) is None
 

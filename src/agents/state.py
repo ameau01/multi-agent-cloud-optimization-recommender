@@ -113,4 +113,13 @@ class CycleState(BaseModel):
     # cycle_completed row's content.
     failed_at_stage: str | None = None
 
+    # harness_trail.id of the orchestration_check verdict written by
+    # the cycle_complete node. The runner reads this after writing
+    # cycle_completed and calls link_harness_to_event to backfill the
+    # verdict's related_event_id, completing the harness → audit link
+    # the same way reasoning + action verdicts do. None on the rare
+    # path where the cycle_complete node never ran (uncaught exception
+    # earlier in the graph).
+    last_orchestration_check_id: int | None = None
+
     model_config = ConfigDict(extra="forbid")

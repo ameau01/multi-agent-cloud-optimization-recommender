@@ -101,6 +101,9 @@ class SystemMapperNode:
                 f"({check.failure_reason})."
             )
         row_id = self._record_output(state, plan, evidence_refs)
+        # Backfill the reasoning verdict to point at the row it judged.
+        # Mirrors the dispatch.py + supervisor.py backfill pattern.
+        self._store.link_harness_to_event(check.harness_record_id, row_id)
         return {
             "analysis_plan": plan,
             "has_system_map": True,

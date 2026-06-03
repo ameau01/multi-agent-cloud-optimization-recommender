@@ -182,6 +182,11 @@ def _make_cycle_complete_node(orchestration_harness: OrchestrationHarness):
             "terminal_state": final,
             "failure_reason": reason,
             "failed_at_stage": stage,
+            # Stamped so the runner can backfill related_event_id after
+            # writing cycle_completed. Mirrors the link pattern used
+            # for action checks (in dispatch.py) and reasoning checks
+            # (in supervisor.py + system_mapper.py).
+            "last_orchestration_check_id": check.harness_record_id,
         }
     return node
 

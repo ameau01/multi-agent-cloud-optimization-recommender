@@ -91,6 +91,11 @@ class SupervisorNode:
             )
 
         row_id = self._record_decision(state=state, decision=decision)
+        # Backfill the reasoning verdict's related_event_id so a reader
+        # of harness_trail can answer "which decision did this verdict
+        # check?" without parsing details. Mirrors the dispatch.py
+        # backfill for action checks.
+        self._store.link_harness_to_event(check.harness_record_id, row_id)
         return {
             "specialists_invoked": list(decision["targets"]),
             "last_supervisor_decision_id": row_id,

@@ -32,9 +32,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import update  # noqa: F401  -- used below
-
-from ..audit.schema import harness_trail
 from ..audit.store import AuditStore
 from ..harnesses.action import ActionHarness, PolicyResult
 from ..models.audit import AuditRecord
@@ -111,12 +108,9 @@ def dispatch_tool(
 
     # Stamp the harness verdict's related_event_id to this tool_call.
     # This is what makes the substance ↔ enforcement chain queryable.
-    with store.engine.begin() as conn:
-        conn.execute(
-            update(harness_trail)
-            .where(harness_trail.c.id == policy.harness_record_id)
-            .values(related_event_id=tool_call_id)
-        )
+    # Shared with reasoning + orchestration harnesses via the same
+    # store helper — see store.link_harness_to_event.
+    store.link_harness_to_event(policy.harness_record_id, tool_call_id)
 
     # Invoke the actual tool.
     try:
