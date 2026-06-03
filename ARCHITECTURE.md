@@ -50,7 +50,7 @@ flowchart TB
     RP --> H
 
     %% Perpendicular branches (one edge each, no clutter)
-    SM -. tier topology .-> SUP
+    SUP <-. dispatch · tier topology .-> SM
     SPECS <-. tool calls .-> TEL
 
     classDef center fill:#eef1ff,stroke:#4a5fff,stroke-width:1.5px,color:#111
@@ -63,7 +63,7 @@ flowchart TB
     class TR,H terminus
 ```
 
-**Reading the diagram.** The vertical sequence — trigger, Supervisor, Specialists, Evaluator, gate, Review Packet, Human — is the conceptual flow of one review cycle. System Mapper sits perpendicular because it's a one-shot topology lookup that feeds the Supervisor, not a stage in the recommendation pipeline. MCP scenario data sits perpendicular on the other side because it's the data source the Specialists (and Mapper) query via tool calls.
+**Reading the diagram.** The vertical sequence — trigger, Supervisor, Specialists, Evaluator, gate, Review Packet, Human — is the conceptual flow of one review cycle. System Mapper sits perpendicular because the Supervisor dispatches it once per cycle to map the application's tier graph, then control returns to the Supervisor — it's a worker the Supervisor calls, not a stage in the pipeline. MCP scenario data sits perpendicular on the other side because it's the data source the Specialists (and Mapper) query via tool calls.
 
 **Supervisor is the only router.** Although the diagram draws the sequence as a vertical chain, the implementation routes every transition through the Supervisor: Supervisor decides whether to call System Mapper, which specialists to dispatch, when to synthesize via the Evaluator, when to send the recommendation to the gate, and crucially — when to terminate the cycle. Every worker node returns to the Supervisor between stages; no worker can decide "we're done" on its own. The downward arrows are the conceptual sequence; the routing loop through the Supervisor is left implicit to keep the diagram readable.
 

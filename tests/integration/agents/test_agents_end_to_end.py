@@ -91,7 +91,8 @@ def test_agents_run_on_app_08_produces_expected_trail() -> None:
     assert cycle_id.startswith("cycle_")
 
     # Audit rows: cycle_started, 2x tool_call+observation, system_mapper_output,
-    # supervisor_decision, cycle_completed.
+    # 2x supervisor_decision (dispatch_system_mapper + complete under the
+    # supervisor-as-router pattern), cycle_completed.
     events = get_cycle_events(store, cycle_id)
     type_counts: dict[str, int] = {}
     for e in events:
@@ -100,12 +101,14 @@ def test_agents_run_on_app_08_produces_expected_trail() -> None:
     assert type_counts.get("tool_call") == 2
     assert type_counts.get("observation") == 2
     assert type_counts.get("system_mapper_output") == 1
-    assert type_counts.get("supervisor_decision") == 1
+    assert type_counts.get("supervisor_decision") == 2
     assert type_counts.get("cycle_completed") == 1
 
-    # Harness rows: 2 input_validation + 2 tool_call_policy_check, all passed.
+    # Harness rows: 2 input_validation + 2 tool_call_policy_check + 3
+    # reasoning_check decision_evidence_backed (one for system_mapper_output,
+    # two for supervisor_decision), all passed. 7 total.
     h_events = get_harness_events_for_cycle(store, cycle_id)
-    assert len(h_events) == 4
+    assert len(h_events) == 7
     assert all(h.verdict == "passed" for h in h_events)
 
     # No recommendation row yet (skeleton mode invokes zero specialists).
