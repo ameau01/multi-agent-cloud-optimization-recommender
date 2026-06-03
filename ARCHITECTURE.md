@@ -31,41 +31,44 @@ flowchart TB
     %% Centered main flow — the stages a cycle moves through
     TR([Review trigger<br/><i>app-name + optional alert</i>])
     SUP[Supervisor<br/><i>router · decides next step · decides when to complete</i>]
-    SPECS[Specialists<br/><i>Compute · Data Layer · Network</i><br/><i>ReAct, tier-bounded</i>]
-    EV[Cross-Tier Evaluator<br/><i>drift-check + synthesis</i>]
-    GATE{{Action Harness gate<br/><i>severity · duplication · evidence completeness</i>}}
-    RP[Review Packet<br/><i>recommendation + evidence chain</i>]
-    H([Human reviewer<br/><i>approve / reject / defer</i>])
-
-    %% Side branches — perpendicular to the main flow
     SM[System Mapper<br/><i>Terraform → tier graph</i>]
-    TEL[(MCP scenario data<br/><i>Terraform + 14d telemetry + sidecar</i><br/><i>validated by Input Harness</i>)]
 
-    %% Main vertical sequence
+    %% Three tier-bounded specialists, dispatched in parallel
+    SP_C[Compute Analyst<br/><i>ReAct · compute tier</i>]
+    SP_D[Data Layer Analyst<br/><i>ReAct · database + cache</i>]
+    SP_N[Network Analyst<br/><i>ReAct · network tier</i>]
+
+    EV[Cross-Tier Evaluator<br/><i>drift-check + synthesis</i>]
+    RP(["Review Packet<br/><i>recommendation + evidence chain</i>"])
+    H(["Human-in-the-loop (HITL)<br/><i>approve · reject · defer</i>"])
+
+    %% Main vertical sequence — middle specialist declared first as parent
+    %% of EV so dagre places EV on the centerline.
     TR --> SUP
-    SUP --> SPECS
-    SPECS --> EV
-    EV --> GATE
-    GATE --> RP
+    SUP --> SP_D
+    SUP --> SP_C
+    SUP --> SP_N
+    SP_D --> EV
+    SP_C --> EV
+    SP_N --> EV
+    EV --> RP
     RP --> H
 
-    %% Perpendicular branches (one edge each, no clutter)
+    %% Perpendicular interaction — System Mapper is a worker the Supervisor
+    %% dispatches once per cycle to map the application's tier graph.
     SUP <-. dispatch · tier topology .-> SM
-    SPECS <-. tool calls .-> TEL
 
     classDef center fill:#eef1ff,stroke:#4a5fff,stroke-width:1.5px,color:#111
-    classDef side fill:#fafafa,stroke:#999,stroke-dasharray:4 3,color:#444
     classDef terminus fill:#fff,stroke:#222,stroke-width:1.5px,color:#000
-    classDef gate fill:#fffbe6,stroke:#c08400,stroke-width:1.5px,color:#111
-    class SUP,SPECS,EV,RP center
-    class SM,TEL side
-    class GATE gate
-    class TR,H terminus
+    class SUP,SP_C,SP_D,SP_N,EV,SM center
+    class TR,RP,H terminus
 ```
 
-**Reading the diagram.** The vertical sequence — trigger, Supervisor, Specialists, Evaluator, gate, Review Packet, Human — is the conceptual flow of one review cycle. System Mapper sits perpendicular because the Supervisor dispatches it once per cycle to map the application's tier graph, then control returns to the Supervisor — it's a worker the Supervisor calls, not a stage in the pipeline. MCP scenario data sits perpendicular on the other side because it's the data source the Specialists (and Mapper) query via tool calls.
+*Blue boxes are agents; oval endpoints are external boundaries (trigger in, deliverable out, human review). MCP scenario data and the four harnesses are cross-cutting concerns covered by the diagrams further down.*
 
-**Supervisor is the only router.** Although the diagram draws the sequence as a vertical chain, the implementation routes every transition through the Supervisor: Supervisor decides whether to call System Mapper, which specialists to dispatch, when to synthesize via the Evaluator, when to send the recommendation to the gate, and crucially — when to terminate the cycle. Every worker node returns to the Supervisor between stages; no worker can decide "we're done" on its own. The downward arrows are the conceptual sequence; the routing loop through the Supervisor is left implicit to keep the diagram readable.
+**Reading the diagram.** The vertical sequence — trigger, Supervisor, three tier-bounded Specialists in parallel, Cross-Tier Evaluator, Review Packet, Human-in-the-loop — is the conceptual flow of one review cycle. The Supervisor fans out to the three Specialists whose tiers the System Mapper detected; their findings fan back in to the Cross-Tier Evaluator for drift-check and synthesis. The fan-out / fan-in shape is the coordination story — many independent specialist agents, one synthesized conclusion. System Mapper sits perpendicular because the Supervisor dispatches it once per cycle to map the application's tier graph, then control returns to the Supervisor — it's a worker the Supervisor calls, not a stage in the pipeline.
+
+**Supervisor is the only router.** Although the diagram draws the sequence as a vertical chain, the implementation routes every transition through the Supervisor: Supervisor decides whether to call System Mapper, which specialists to dispatch, when to synthesize via the Evaluator, when to hand the synthesized recommendation onward to the Action Harness gate (see the next section), and crucially — when to terminate the cycle. Every worker node returns to the Supervisor between stages; no worker can decide "we're done" on its own. The downward arrows are the conceptual sequence; the routing loop through the Supervisor is left implicit to keep the diagram readable.
 
 Every arrow crosses one or more harnesses — the next section describes them. Note that this is a logical topology, not a microservice deployment diagram. For this portfolio implementation, the system runs as a single Python process; the architectural boundaries are strictly logical, not infrastructural.
 
@@ -75,23 +78,28 @@ The harnesses are not a fifth agent. They are system-wide constraints enforced a
 
 ```mermaid
 flowchart TB
-    %% Node Definitions
-    IH[Input Harness<br/>Validates scenario data & triggers]
-    RH["Reasoning Harness<br/>Enforces structured output, evidence binding & scoring"]
-    AH["Action Harness<br/>Scopes tool access & gates recommendations"]
-    PAR["Persistent Action Record<br/>Append-only audit trail across all agents"]
+    %% The four harnesses — cross-cutting, not a pipeline. Each fires
+    %% at a different kind of event; all four write their verdicts
+    %% into the same harness_trail table.
+    IH["Input Harness<br/><i>gates: trigger + app's scenario data</i><br/><i>fires: once at cycle start</i>"]
+    AH["Action Harness<br/><i>gates: every tool call attempt,<br/>plus the final recommendation</i><br/><i>fires: per call</i>"]
+    RH["Reasoning Harness<br/><i>gates: finding_type, evidence_refs,<br/>decision-evidence, drift verdicts</i><br/><i>fires: per structured output</i>"]
+    OH["Orchestration Harness<br/><i>gates: cycle-level transitions —<br/>cycle completion legitimacy,<br/>proceed-to-evaluator</i>"]
 
-    %% Main Execution Flow
-    IH -->|applies at ingest phase| RH
-    RH -->|applies to every specialist and evaluator turn| AH
-    AH -->|applies at every tool call and final recommendation gate| PAR
+    HT[("harness_trail<br/><i>every verdict lands here —<br/>passed · rejected · flagged · info</i>")]
 
+    IH --> HT
+    AH --> HT
+    RH --> HT
+    OH --> HT
 
-    %% Audit Logging Flow
-    IH -.->|"Logs"| PAR
-    RH -.->|"Logs"| PAR
+    classDef harness fill:#eef1ff,stroke:#4a5fff,stroke-width:1.5px,color:#111
+    classDef table fill:#fff7e6,stroke:#c08400,stroke-width:1.5px,color:#111
+    class IH,AH,RH,OH harness
+    class HT table
 ```
-The Persistent Action Record captures state at every transition, so the full reasoning chain — from trigger to final synthesis — can be reconstructed from the audit trail.
+
+The harnesses are cross-cutting concerns, not a sequential pipeline — each fires at a different kind of event during one cycle. Every verdict (passed, rejected, flagged, info) lands in `harness_trail`, keyed by `check_name` and linked to the audit row it judged via `related_event_id`. The agent's substance — what it decided and what evidence it cited — lives in a separate table, `audit_records`. The two tables together let a reader reconstruct both the decision report (substance) and the enforcement report (verdicts) for any cycle. See `docs/audit-trail.md` for the table-level model and `docs/harnesses.md` for what each harness checks.
 
 ## End-to-end Flow
 
