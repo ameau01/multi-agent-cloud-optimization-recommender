@@ -12,14 +12,7 @@ For the four-layer evaluator that scores these outputs, see
 
 ```
 sample_runs/
-├── scenario_02/
-│   └── raw_recommendation.json           full composite: gold + scoring_metadata
-│                                         + trace + report_content + _provenance
-├── scenario_07/
-│   └── raw_recommendation.json
-├── scenario_08/
-│   └── raw_recommendation.json
-├── reports/                              3 markdown reports rendered from the composites
+├── reports/                              3 markdown reports
 │   ├── scenario_02_report.md             single-tier (compute / scaling_policy_change)
 │   ├── scenario_07_report.md             cross-tier (cache -> database / cache_capacity_adjustment)
 │   └── scenario_08_report.md             cross-tier (database -> compute / query_cache_optimization)
@@ -33,23 +26,16 @@ sample_runs/
 └── README.md                             (this file)
 ```
 
-Each `scenario_NN/raw_recommendation.json` is a full composite, validated
-against [`src/models/composite.py`](../src/models/composite.py). It is the
-source of truth. The `reports/scenario_NN_report.md` and
-`traces/scenario_NN_trace.json` files are derived: the renderer at
-[`src/renderer/`](../src/renderer/) produces them deterministically from
-the composite. A CI test
-([`tests/integration/test_renderer.py`](../tests/integration/test_renderer.py))
-asserts they stay in sync — if a composite is edited without re-rendering,
-or vice versa, the test fails loud.
-
-To regenerate the rendered files after editing a composite:
+These files are **vendored read-only output** from a live Opus end-to-end
+run on 2026-06-04 (cycle IDs below). Their source composites live in the
+audit DB from that run, not on disk — there is no `raw_recommendation.json`
+in this folder to re-render. To produce a fresh report from a live cycle,
+run the agents against an app and use the wrapper scripts:
 
 ```bash
-uv run python -m src.renderer \
-    --composite sample_runs/scenario_08/raw_recommendation.json \
-    --out-report sample_runs/reports/scenario_08_report.md \
-    --out-trace  sample_runs/traces/scenario_08_trace.json
+bash scripts/run_agents.sh app-08
+bash scripts/render_recommendation.sh app-08 --out /tmp/report.md
+bash scripts/render_evidence_trace.sh app-08 --format json --out /tmp/trace.json
 ```
 
 The three picks match the three scenarios vendored in

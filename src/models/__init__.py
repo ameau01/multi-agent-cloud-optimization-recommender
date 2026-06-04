@@ -9,7 +9,7 @@ Current modules:
   - composite : the composite recommendation artifact (gold + scoring
     rubric + optional trace + report content + provenance). Validates
     every file under eval-set/expectations/NN/raw_recommendation.json
-    and every full composite under sample_runs/scenario_NN/.
+    and every live composite produced by the agent pipeline.
   - telemetry : MCP server output schemas (telemetry tools, shared
     context tools, per-tier specials, scenario/dataset tools).
 

@@ -2,11 +2,15 @@
 
 Usage:
     python -m src.renderer \\
-        --composite sample_runs/scenario_08/raw_recommendation.json \\
-        --out-report sample_runs/reports/scenario_08_report.md \\
-        --out-trace  sample_runs/traces/scenario_08_trace.json
+        --composite eval-set/expectations/08/raw_recommendation.json \\
+        --out-report /tmp/report.md \\
+        --out-trace  /tmp/trace.json
 
 Either output flag is optional; pass only the one you want regenerated.
+
+For rendering against a live audit cycle (not a static composite file),
+use the wrapper script `scripts/render_recommendation.sh <app-NN>`, which
+composes from the audit DB before invoking this renderer.
 """
 
 from __future__ import annotations
