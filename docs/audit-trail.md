@@ -32,7 +32,7 @@ Every record carries:
 
 - A stable unique identifier.
 - A timestamp.
-- The agent or harness that emitted it.
+- The agent or harness that produced it.
 - The review-cycle identifier (so all records from one cycle can be retrieved together).
 - Foreign-key references to upstream records in the causal chain.
 
@@ -69,12 +69,12 @@ A developer or reviewer can walk the chain forward or backward. The system's rea
 
 ### What's verifiable today
 
-The full agent system is not yet implemented (Phase 7 in `CHANGELOG.md`). Until it is, the auditability contract is verified by:
+Two complementary checks confirm the auditability contract holds:
 
-- **`tests/verify_trace.py`** A standalone script that walks the sample traces backward and confirms every parent reference resolves. Runs in under a second; exits non-zero if any pointer is dangling.
-- **`sample_runs/traces/scenario_NN_trace.json`** Sample traces for scenarios 02, 07, and 08 with all the required IDs and foreign keys in place.
+- **`tests/verify_trace.py`** A standalone script that walks the sample traces backward and confirms every parent reference resolves. Runs in under a second; exits non-zero if any pointer is dangling. Wired into the integration-test runner (`scripts/integration_test_all.sh`) so every live cycle's audit + harness trail is verified end-to-end as part of the regression sweep.
+- **`sample_runs/traces/scenario_NN_trace.json`** Sample traces for scenarios 02, 07, and 08 with all the required IDs and foreign keys in place — these are the canonical reference shape for what a clean trail looks like.
 
-When the agents are implemented, the Action Harness's `evidence_completeness` check runs the same verification at gate time on every live review. The `verified_refs` field on that check is what carries the result.
+For live cycles, the Action Harness's recommendation gate carries the same verification at gate time; the harness rejects a recommendation whose `evidence_refs` don't resolve to actual audit rows from the same cycle.
 
 ## Why relational, not vector
 
@@ -114,7 +114,7 @@ audit_records
   parent_id         INTEGER              -- self-FK; NULL only for the cycle root
   category          TEXT NOT NULL        -- 'decision' | 'evidence'
   type              TEXT NOT NULL        -- concrete sub-type (taxonomy below)
-  agent             TEXT                 -- which agent or harness emitted it
+  agent             TEXT                 -- which agent or harness produced it
   content           JSON NOT NULL        -- type-shaped payload
   timestamp         DATETIME DEFAULT CURRENT_TIMESTAMP
   FOREIGN KEY (parent_id) REFERENCES audit_records(id)
@@ -156,7 +156,7 @@ So: the decision report is `audit_records WHERE cycle_id = ? AND category = 'dec
 
 ### `harness_trail` — what the harnesses verified or rejected
 
-The second table records *enforcement events*: validations from the Input Harness, policy checks and gate verdicts from the Action Harness, and pre-emit checks from the Reasoning Harness. Kept separate from `audit_records` so the agent's reasoning story stays focused on substance — what the agent *did* — while `harness_trail` tells the parallel story of what was *verified or prevented*.
+The second table records *enforcement events*: validations from the Input Harness, policy checks and gate verdicts from the Action Harness, and pre-produce checks from the Reasoning Harness. Kept separate from `audit_records` so the agent's reasoning story stays focused on substance — what the agent *did* — while `harness_trail` tells the parallel story of what was *verified or prevented*.
 
 ```text
 harness_trail

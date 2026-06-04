@@ -110,3 +110,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 `docs/harnesses.md`
+
+## [Langsmith integration]
+
+### Changed
+- update supervisor to be only router
+
+### Added
+- add mockup fixture so that langsmith /langgraph dev in mockup mode.
+- add mock_llm.py for unit tests execution
+
+### Documentation
+- `docs/harnesses.md`, `docs/agent.md`

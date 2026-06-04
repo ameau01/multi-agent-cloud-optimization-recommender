@@ -166,6 +166,104 @@ class OrchestrationHarness:
         )
 
     # ----------------------------------------------------------------
+    # check_validate_specialists_completed
+    # ----------------------------------------------------------------
+    def check_validate_specialists_completed(
+        self,
+        cycle_id: str,
+        specialists_invoked: list[str],
+        specialists_completed: list[str],
+        related_event_id: int | None = None,
+    ) -> OrchestrationCheckResult:
+        """Confirm every dispatched specialist actually completed before
+        the Evaluator runs. Returns 'passed' when the two sets match,
+        'rejected' when one or more specialists never produced a finding.
+
+        Note: no_issue_found and diagnostic_deferral are LEGITIMATE
+        completions — a specialist that returns either is considered
+        complete. The check fires on the audit-row presence, not on
+        finding_type substance.
+        """
+        check_name = "validate_specialists_completed"
+        target_event_type = "evaluator_record"
+        details = {
+            "specialists_invoked": list(specialists_invoked),
+            "specialists_completed": list(specialists_completed),
+        }
+        missing = set(specialists_invoked) - set(specialists_completed)
+        if missing:
+            return self.route(
+                cycle_id=cycle_id,
+                check_name=check_name,
+                target_event_type=target_event_type,
+                related_event_id=related_event_id,
+                verdict="rejected",
+                details=details,
+                failure_reason=(
+                    f"Specialists invoked but never completed: "
+                    f"{sorted(missing)}. Evaluator cannot synthesize."
+                ),
+            )
+        return self.route(
+            cycle_id=cycle_id,
+            check_name=check_name,
+            target_event_type=target_event_type,
+            related_event_id=related_event_id,
+            verdict="passed",
+            details=details,
+            failure_reason=None,
+        )
+
+    # ----------------------------------------------------------------
+    # check_should_proceed_to_evaluator
+    # ----------------------------------------------------------------
+    def check_should_proceed_to_evaluator(
+        self,
+        cycle_id: str,
+        specialist_finding_record_ids: list[int],
+        related_event_id: int | None = None,
+    ) -> OrchestrationCheckResult:
+        """Confirm at least one specialist_finding row landed in
+        audit_records before the Evaluator runs. The Reasoning Harness
+        already rejected any structurally-bad finding; if zero rows
+        landed it means every specialist failed structurally — the
+        Evaluator has nothing to synthesize from.
+
+        Restraint (all no_issue_found) and deferral (all
+        diagnostic_deferral) are NOT this case — those legitimate
+        findings DO land as audit rows. This check rejects only the
+        true all-structurally-failed case.
+        """
+        check_name = "should_proceed_to_evaluator"
+        target_event_type = "evaluator_record"
+        details = {
+            "specialist_finding_count": len(specialist_finding_record_ids),
+        }
+        if not specialist_finding_record_ids:
+            return self.route(
+                cycle_id=cycle_id,
+                check_name=check_name,
+                target_event_type=target_event_type,
+                related_event_id=related_event_id,
+                verdict="rejected",
+                details=details,
+                failure_reason=(
+                    "Zero specialist_finding rows landed; every "
+                    "specialist failed structurally. Evaluator "
+                    "cannot synthesize from nothing."
+                ),
+            )
+        return self.route(
+            cycle_id=cycle_id,
+            check_name=check_name,
+            target_event_type=target_event_type,
+            related_event_id=related_event_id,
+            verdict="passed",
+            details=details,
+            failure_reason=None,
+        )
+
+    # ----------------------------------------------------------------
     # route — public for symmetry with the other harnesses
     # ----------------------------------------------------------------
     def route(

@@ -33,7 +33,7 @@ from ..common.init import ensure_env_loaded, get_audit_store
 from ..harnesses.action import ActionHarness
 from ..harnesses.input import InputHarness
 from .orchestrator import build_graph
-from .state import CycleState
+from .state import make_initial_state
 
 
 # Trigger types we accept on `run_cycle`. The string lands in the
@@ -93,7 +93,7 @@ def run_cycle(
 
     # 4. Build graph and invoke.
     graph_app = build_graph(store, input_harness, action_harness)
-    initial_state = CycleState(
+    initial_state = make_initial_state(
         application_id=application_id,
         cycle_id=cycle_id,
         cycle_started_id=cycle_started_id,

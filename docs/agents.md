@@ -18,7 +18,7 @@ This doc covers what each agent does, what it does not do, and why it earns its 
 - **Trigger handling** Accepts review requests — scheduled, change-driven, or on-demand. Validates the input is well-formed before any downstream agent runs.
 - **Architecture model retrieval** Invokes the System Mapper to obtain the tier graph and analysis plan.
 - **Specialist invocation** From the analysis plan, decides which Tier Specialists to invoke. Skips specialists for tiers not in the topology.
-- **Low-confidence handling** When a specialist returns a finding below the confidence threshold, decides whether to retry, pass through with a flag, or defer to HITL.
+- **Low-confidence handling** _(design intent; not yet wired)._ When a specialist returns a finding below the confidence threshold, the Supervisor is the place where retry / pass-through-with-flag / defer-to-HITL decisions belong. The current Supervisor implementation has the routing surface for these branches but no confidence-driven branch is active yet; low-confidence findings flow straight through to the Cross-Tier Evaluator, which surfaces them in its drift-check.
 - **Aggregation** Collects specialist findings and forwards them to the Cross-Tier Evaluator along with the cross-tier pairs of interest.
 
 **Inputs** Review trigger metadata (target app + optional alert description). The Input Harness's validation verdict for the target scenario.
@@ -67,7 +67,7 @@ Three specialists run in parallel, each scoped to one tier: **Compute Analyst**,
 - **ReAct loop** Form a hypothesis. Query the read surface. Observe. Refine. Conclude. **This ReAct loop is the foundation of the system's audit trail. A zero-shot approach was rejected because it acts as an unauditable black box; by contrast, the ReAct loop forces the specialist to bind every conclusion to a specific, logged tool observation.** Every cycle is logged to the audit trail.
 - **Evidence-bound reasoning** Every conclusion cites the specific read operations that justified it. The Reasoning Harness enforces this structurally, see [harnesses.md](harnesses.md).
 - **Confidence scoring** A specialist-level confidence combining evidence sufficiency and within-tier pattern strength.
-- **Structured finding output** Emit a finding with an explicit `finding_type`, one of `issue_found`, `no_issue_found`, `insufficient_data`, plus the recommendation (if any), evidence references, and confidence.
+- **Structured finding output** Produce a finding with an explicit `finding_type`, one of `issue_found`, `no_issue_found`, `diagnostic_deferral`, `insufficient_data`, plus the recommendation (if any), evidence references, and confidence.
 
 **Inputs** Tier scope. Application context (SLA target, business context, current configuration). Access to the tier's read surface.
 **Outputs** A structured specialist finding. Schema in [harnesses.md](harnesses.md).
@@ -84,15 +84,16 @@ The optimization vocabularies, failure signatures, and appropriate interventions
 
 Running them in parallel is a real architectural choice. It cuts wall-clock time, and it structurally prevents one specialist's reasoning from influencing another's. Specialist independence is what makes the Cross-Tier Evaluator's drift-check meaningful.
 
-### The three-valued `finding_type`
+### The four-valued `finding_type`
 
-A common failure mode of agent systems is producing a recommendation when the right answer is "no action." Specialists in this system are explicitly designed for three outcomes:
+A common failure mode of agent systems is producing a recommendation when the right answer is "no action." Specialists in this system are explicitly designed for four outcomes:
 
 - **`issue_found`**, sufficient evidence supports a specific recommendation.
 - **`no_issue_found`**, the tier is operating within expected ranges. A valid, full-confidence finding.
-- **`insufficient_data`**, available evidence is not sufficient to make a determination. A recommendation would be a leap.
+- **`diagnostic_deferral`**, within-tier data is too thin to call confidently — the right next step is more diagnosis (often a distributed trace), not a tier-level recommendation.
+- **`insufficient_data`**, the required telemetry is missing or unreadable. Distinct from `diagnostic_deferral`: that one means the data is present but inconclusive; this one means the data wasn't there at all.
 
-The Reasoning Harness enforces an evidence threshold before any `issue_found` can be emitted. Without sufficient evidence, the specialist must emit `no_issue_found` or `insufficient_data`. This is what gives the system its **restraint capability**.
+The Reasoning Harness enforces an evidence threshold before any `issue_found` can be produced. Without sufficient evidence, the specialist must produce one of the other three. This is what gives the system its **restraint capability**.
 
 ### The ReAct tool surface
 
@@ -235,13 +236,13 @@ The Evaluator uses LLM-as-judge in two senses:
 - **Judge of specialist reasoning quality** (Step 1), assessing whether each specialist's recommendation follows from its cited evidence.
 - **Judge of trade-offs** (Step 3), weighing cost vs. performance vs. reliability when they point in different directions.
 
-Both are real judging jobs. This is what makes the Evaluator the right place to use a stronger LLM (Claude Sonnet) than the specialists do. See [decisions.md](decisions.md) for the LLM mix rationale.
+Both are real judging jobs. The Evaluator's synthesis and the specialists' ReAct telemetry analysis both warrant a capable model; see [decisions.md](decisions.md) for model configuration.
 
 ### Diagnostic deferral
 
-For scenarios where capacity metrics are normal but latency is elevated across tiers simultaneously, the Evaluator can produce a `recommend_diagnosis` output rather than a balanced action. This is the system's **diagnostic-deferral capability**, recognizing when the right next step is a distributed trace analysis to identify root cause, not a scaling decision.
+For scenarios where capacity metrics are normal but latency is elevated across tiers simultaneously, the Evaluator's recommendation can carry `finding_type: diagnostic_deferral` rather than a balanced action. This is the system's **diagnostic-deferral capability** — recognizing when the right next step is a distributed trace analysis to identify root cause, not a scaling decision.
 
-The Reasoning Harness output schema includes this as a first-class output mode alongside `recommend_action` and `recommend_no_action`.
+The same `finding_type` is available to individual specialists when within-tier data is too thin to call confidently, so the deferral signal can originate at the tier level (when one specialist sees inconclusive data) or at the synthesis level (when the Evaluator reconciles three healthy-looking findings against an SLA-violating reality). The Action Harness's recommendation gate accepts all four `finding_type` values as legitimate terminal outputs; `diagnostic_deferral` is not a failure mode.
 
 ### What the Evaluator does not do
 

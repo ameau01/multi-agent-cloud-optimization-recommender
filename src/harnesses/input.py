@@ -171,7 +171,7 @@ class InputHarness:
     # ActionHarness.route_policy_check. Callers route a verdict through
     # this method so it lands as a harness_trail row with the
     # appropriate enforcement type. "Route" matches LangGraph vocabulary
-    # — moving a verdict from one node to the next — rather than "emit,"
+    # — moving a verdict from one node to the next — rather than "produce,"
     # which in LangGraph specifically denotes streaming Pregel events.
     def route(
         self,

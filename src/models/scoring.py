@@ -1,4 +1,4 @@
-"""Pydantic models the evaluator emits.
+"""Pydantic models the evaluator produces.
 
 Three model groups:
   - CheckResult / TierResult: per-layer scoring atoms returned by the

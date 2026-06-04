@@ -62,42 +62,27 @@ Each decision addresses one or more of these constraints. The rejected alternati
 
 **Trade-off accepted** A 12MB initial download dependency. Bundling is appropriate for canonical benchmarks (like GLUE), but when the evaluation logic is a custom architectural contribution, strict separation is the better design.
 
-## 5. Two-Tier LLM Mix (Haiku + Sonnet) vs. Single-Tier
+## 5. Frontier Model End-to-End vs. Tiered Model Mix
 
-**Decision** pecialists use Claude Haiku; the Cross-Tier Evaluator uses Claude Sonnet. See principle 6 in [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+**Decision** Both the tier specialists and the Cross-Tier Evaluator use a frontier model (reference: Claude Opus). All LLM-driven components are configurable via `.env` so lighter tiers can be substituted in cost-sensitive deployments. See principle 6 in [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 
-**Alternatives considered** Using exclusively Haiku (which struggles with complex cross-tier synthesis) or exclusively Sonnet (which wastes capability and budget on simple, high-volume ReAct loops).
+**Rationale** The workload is ReAct over heavy telemetry — each specialist makes ~10-15 MCP tool calls per cycle, and the tool outputs carry nested per-period distributions, time-of-day patterns, per-instance breakouts, and configuration metadata. Lighter models reliably drop enumeration from long tool outputs (cite only the first 3 of 6 returned queries, etc.), miss subtle bimodality and rightsize-candidate cues, and conflate symptoms with root causes in cross-tier synthesis. The Evaluator's drift-check + reconciliation step inherits the same reasoning load.
 
-**The "Why"** The cost-to-capability ratio across the system is non-uniform. Specialists execute many small, iterative turns where speed and cost dominate. The Evaluator executes a few large turns where reasoning capability dominates. Matching model strength exactly to the workload eliminates waste in both directions.
+**Trade-off accepted** Model spend per cycle is higher than a tiered mix would incur. The audit trail, harness gates, and four-layer scoring remain identical regardless of model choice; downgrading the model affects per-scenario solve quality, not the surrounding scaffolding. Teams whose scenario distribution is solvable with a lighter model can use it via `.env` without architectural changes.
 
-**Trade-off accepted.** Managing two model billing categories instead of one. The operational complexity is negligible (since both share the same provider and SDK), and the cost savings on the high-volume specialist tier are substantial.
+**Configuration** See `.env.example` for `SPECIALIST_MODEL`, `EVALUATOR_MODEL`, `LLM_JUDGE_MODEL`. The judge stays on a lighter tier (default Haiku) by design — its job is constrained text comparison, not analysis.
 
-### Cost estimation per review
+### Cost-aware design patterns
 
-While exact numbers depend on scenario complexity, the system is designed to be highly affordable to iterate on. A representative full review requires roughly 20–37 total LLM calls:
+The architecture limits redundant LLM spend through several patterns independent of model choice:
+- **Parallel execution.** Specialists run concurrently. Reduces wall-clock time without increasing call volume.
+- **Supervisor early-skip.** When the System Mapper's topology analysis indicates a tier is absent or irrelevant, the Supervisor skips that specialist entirely.
+- **Deterministic guardrails.** The Action Harness relies primarily on code-based checks rather than LLM calls to gate recommendations.
+- **Append-only caching.** Because the audit trail is append-only, the Evaluator's drift-check (a function mapping a finding to a verdict) is cacheable on retries.
 
-| Component                    | Calls                    | Notes                                                                     |
-| ---------------------------- | ------------------------ | ------------------------------------------------------------------------- |
-| Input Harness validation     | 0 LLM calls              | Pure schema validation.                                                   |
-| Supervisor decisions         | 1, 2 LLM calls (Haiku)   | Light orchestration reasoning.                                            |
-| System Mapper                | 1 LLM call (Haiku)       | Architecture model generation after Terraform parse.                      |
-| Tier Specialist ReAct (per)  | 5, 10 LLM calls (Haiku)  | Depends on how many ReAct cycles the specialist needs.                    |
-| Tier Specialists (all three) | 15, 30 LLM calls (Haiku) | Three specialists × 5, 10 cycles each.                                    |
-| Cross-Tier Evaluator         | 3 LLM calls (Sonnet)     | Drift-check, cross-tier identification, synthesis.                        |
-| Action Harness gate          | 0, 1 LLM call (Haiku)    | Structural checks are deterministic; severity classification may use LLM. |
-| **Total per review**         | **20, 37 LLM calls**     | Mix of Haiku and Sonnet.                                                  |
+### Provider portability
 
-### Cost-Aware Optimization Patterns
-
-Beyond the model split, the architecture natively limits LLM spend through several design patterns:
-- **Parallel Execution** Specialists run concurrently. This reduces wall-clock time without increasing call volume.
-- **Supervisor Early-Skip** If the System Mapper's topology analysis indicates a specific tier is irrelevant to the current architecture, the Supervisor skips that specialist entirely.
-- **Deterministic Guardrails** The Action Harness relies primarily on code-based checks rather than LLM calls to gate recommendations.
-- **Append-Only Caching** Because the audit trail is append-only, the Evaluator's drift-check (a function mapping a finding to a verdict) can be cached during retries.
-
-### Provider Portability
-
-While the reference implementation uses Anthropic's Claude models, the architectural pattern is strictly provider-agnostic. The design simply dictates a fast/cheap model for structured data extraction and a heavy-reasoning model for synthesis. Substituting an equivalent two-tier split from OpenAI or Google is a basic configuration change, not an architectural rewrite.
+While the reference implementation uses Anthropic's Claude, the architectural pattern is provider-neutral. Substituting an equivalent capability tier from OpenAI or Google is a `.env` change, not an architectural rewrite.
 
 ## 6. Parallel vs. Sequential Specialists
 

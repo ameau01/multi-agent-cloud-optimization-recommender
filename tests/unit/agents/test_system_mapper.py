@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from src.agents.analysis_plan import AnalysisPlan
-from src.agents.state import CycleState
+from src.agents.state import make_initial_state
 from src.agents.system_mapper import (
     SystemMapperError,
     SystemMapperNode,
@@ -107,7 +107,7 @@ def test_run_produces_plan_and_writes_audit_row(
     mock_mcp.register("get_terraform", app_08_terraform)
 
     node = SystemMapperNode(store, action_harness, ReasoningHarness(store))
-    state = CycleState(application_id="app-08", cycle_id=cycle_id)
+    state = make_initial_state(application_id="app-08", cycle_id=cycle_id)
     update = node.run(state)
 
     plan = update["analysis_plan"]
@@ -156,7 +156,7 @@ def test_run_unwraps_metadata_envelope(
     mock_mcp.register("get_terraform", app_08_terraform)
 
     node = SystemMapperNode(store, action_harness, ReasoningHarness(store))
-    state = CycleState(application_id="app-08", cycle_id=cycle_id)
+    state = make_initial_state(application_id="app-08", cycle_id=cycle_id)
     plan = node.run(state)["analysis_plan"]
     assert plan.tiers_detected == ["compute", "database", "network"]
     assert plan.specialists_to_invoke == [
@@ -187,7 +187,7 @@ def test_run_raises_when_harness_rejects_fetch(
     scope_mod.SPECIALIST_TOOL_ALLOWLIST["system_mapper"] = {}
     try:
         node = SystemMapperNode(store, action_harness, ReasoningHarness(store))
-        state = CycleState(application_id="app-08", cycle_id=cycle_id)
+        state = make_initial_state(application_id="app-08", cycle_id=cycle_id)
         with pytest.raises(SystemMapperError, match="could not fetch"):
             node.run(state)
     finally:

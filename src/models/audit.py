@@ -49,7 +49,7 @@ from .enums import (
 # ============================================================
 # These describe the `content` payload for each decision-side record
 # type. All are lenient on extras (extra='allow') because agents may
-# emit additional debugging fields during development. The store does
+# produce additional debugging fields during development. The store does
 # not enforce content shape per type at write-time except via this
 # model's own validation.
 
@@ -177,7 +177,7 @@ class EvaluatorRecordContent(BaseModel):
 
 
 class RecommendationContent(BaseModel):
-    """content for type='recommendation'. The final Composite emitted
+    """content for type='recommendation'. The final Composite produced
     by the cycle. The composite field carries the full artifact; the
     composer reads this field when reconstructing a Composite from the
     cycle's records.
@@ -193,7 +193,7 @@ class RecommendationContent(BaseModel):
 
 class HitlDecisionContent(BaseModel):
     """content for type='hitl_decision'. Human reviewer verdict.
-    Emitted in the future when HITL is wired up."""
+    Produced in the future when HITL is wired up."""
     decision: str                       # "approve" | "reject" | "defer"
     reviewer_notes: str | None = None
     evidence_refs: list[int] = Field(default_factory=list)
@@ -350,7 +350,7 @@ class GateVerdictContent(BaseModel):
 
 class ReasoningCheckContent(BaseModel):
     """content for type='reasoning_check'. The Reasoning Harness records
-    one of these per structured-output pre-emit check (evidence_refs
+    one of these per structured-output pre-produce check (evidence_refs
     minimum count, finding_type in the three-valued set, confidence
     breakdown shape, and so on).
 

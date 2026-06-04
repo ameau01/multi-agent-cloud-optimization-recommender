@@ -194,6 +194,28 @@ def main():
             print(f"  {label:<12s} {verdict}")
     print()
 
+    # ---- judge rationale on failure (Mid / Rich) ----
+    # Surface the judge's reasoning when Mid or Rich actually failed.
+    # The judge score + rationale is captured in detail of either the
+    # 'judge_richness' check (Rich gate) or 'judge_threshold' check
+    # (Mid gate). Printing it gives the operator a concrete signal for
+    # what was thin, instead of just "thin".
+    for label, layer_result in (("Mid", result["mid"]), ("Rich", result["rich"])):
+        if isinstance(layer_result, str):
+            continue
+        if layer_result.passed:
+            continue
+        for check in layer_result.checks:
+            detail = getattr(check, "detail", None) or {}
+            if "rationale" in detail or "score" in detail:
+                score_v = detail.get("score")
+                rationale = detail.get("rationale") or ""
+                print(f"--- {label} judge feedback (score={score_v}) ---")
+                for line in rationale.splitlines() or [rationale]:
+                    print(f"  {line}")
+                print()
+                break
+
     # ---- summary line + exit code ----
     shape_passed = result["shape"].passed
     correctness_passed = result["correctness"].passed

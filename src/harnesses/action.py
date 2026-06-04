@@ -165,36 +165,143 @@ class ActionHarness:
         )
 
     # ----------------------------------------------------------------
-    # (2) Final-recommendation gate (declared; full impl in next phase)
+    # Public: route the policy-check verdict and return the result
+    # ----------------------------------------------------------------
+    # Public on purpose, matching ReasoningHarness.route and
+    # InputHarness.route.
+    # ----------------------------------------------------------------
+    # (2) Final-recommendation gate (Step 11b)
     # ----------------------------------------------------------------
     def check_recommendation_gate(
         self,
         cycle_id: str,
         recommendation_record_id: int,
-        recommendation_content: dict[str, Any],
     ) -> GateResult:
-        """Run the final-recommendation gate.
+        """Gate the synthesized recommendation before it's surfaced to
+        the human. Verifies four things:
 
-        Phase 11 will implement the four sub-checks (well-formedness,
-        evidence completeness, severity classification, duplication).
-        The signature is fixed so the orchestrator can wire it now and
-        the body lands later.
+        1. Well-formedness — the recommendation row's content carries a
+           composite dict with a finding_type that's one of the four
+           legitimate values. Restraint (no_issue_found) and deferral
+           (diagnostic_deferral) ARE legitimate; the gate accepts them.
+        2. Evidence completeness — every id cited in the recommendation's
+           evidence_refs resolves to a real audit_records row in the same
+           cycle. Dangling refs fail this gate.
+        3. Severity classification — derived from finding_type. issue_found
+           gets the LLM-supplied severity (or 'medium' as fallback);
+           no_issue_found and diagnostic_deferral get 'n/a'.
+        4. Duplication — placeholder for Step 11c. Currently always
+           reports 'no_recent_duplicate'. The slot exists in the harness
+           verdict so a real duplication check can land later without
+           changing the contract.
+
+        Returns a GateResult with severity_classification populated.
+        On rejection, failure_reason names the failing check.
         """
-        raise NotImplementedError(
-            "check_recommendation_gate lands in the next phase, once "
-            "the orchestrated review pipeline produces recommendations "
-            "end-to-end. See docs/harnesses.md §3."
+        from ..audit.queries import get_cycle_events
+        events = get_cycle_events(self._store, cycle_id)
+
+        rec_row = next(
+            (e for e in events
+             if e.type == "recommendation" and e.id == recommendation_record_id),
+            None,
+        )
+        if rec_row is None:
+            return self._route_gate(
+                cycle_id=cycle_id,
+                target_record_id=recommendation_record_id,
+                verdict="rejected",
+                severity="n/a",
+                rejection_reason=(
+                    f"recommendation row id={recommendation_record_id} "
+                    f"not found in this cycle"
+                ),
+            )
+
+        composite = rec_row.content.get("composite") or {}
+        ft = composite.get("finding_type")
+        VALID = {
+            "issue_found", "no_issue_found",
+            "diagnostic_deferral", "insufficient_data",
+        }
+        if ft not in VALID:
+            return self._route_gate(
+                cycle_id=cycle_id,
+                target_record_id=recommendation_record_id,
+                verdict="rejected",
+                severity="n/a",
+                rejection_reason=(
+                    f"recommendation.finding_type {ft!r} is not one of "
+                    f"{sorted(VALID)}"
+                ),
+            )
+
+        # Evidence completeness: every cited id must resolve to a real
+        # row in this cycle. evidence_refs is on the recommendation
+        # content's outer level (not in composite).
+        evidence_refs = rec_row.content.get("evidence_refs") or []
+        cycle_ids = {e.id for e in events if e.id is not None}
+        dangling = [r for r in evidence_refs if r not in cycle_ids]
+        if dangling:
+            return self._route_gate(
+                cycle_id=cycle_id,
+                target_record_id=recommendation_record_id,
+                verdict="rejected",
+                severity="n/a",
+                rejection_reason=(
+                    f"recommendation cites evidence ids that don't "
+                    f"resolve in this cycle: {dangling}"
+                ),
+            )
+
+        # Severity classification.
+        if ft == "issue_found":
+            severity = composite.get("severity") or "medium"
+        else:
+            severity = "n/a"
+
+        # All checks passed.
+        return self._route_gate(
+            cycle_id=cycle_id,
+            target_record_id=recommendation_record_id,
+            verdict="passed",
+            severity=severity,
+            rejection_reason=None,
         )
 
-    # ----------------------------------------------------------------
-    # Public: route the policy-check verdict and return the result
-    # ----------------------------------------------------------------
-    # Public on purpose, matching ReasoningHarness.route and
-    # InputHarness.route. Callers route a verdict through this method
-    # so it lands as a harness_trail row with the appropriate enforcement
-    # type. "Route" matches LangGraph vocabulary — moving a verdict from
-    # one node to the next — rather than "emit," which in LangGraph
-    # specifically denotes streaming Pregel events.
+    def _route_gate(
+        self,
+        cycle_id: str,
+        target_record_id: int,
+        verdict: Verdict,
+        severity: str,
+        rejection_reason: str | None,
+    ) -> GateResult:
+        """Write the gate_verdict harness_trail row, return GateResult."""
+        record = HarnessRecord(
+            cycle_id=cycle_id,
+            parent_id=None,
+            related_event_id=target_record_id,
+            harness="action",
+            type="gate_verdict",
+            verdict=verdict,
+            content={
+                "target_record_id": target_record_id,
+                "severity_classification": severity,
+                "duplication_check_result": "no_recent_duplicate",
+                "overall_verdict": verdict,
+                "rejection_reason": rejection_reason,
+            },
+        )
+        rid = self._store.add_harness_event(record)
+        return GateResult(
+            passed=(verdict == "passed"),
+            verdict=verdict,
+            harness_record_id=rid,
+            severity_classification=severity,
+            rejection_reason=rejection_reason,
+        )
+
     def route_policy_check(
         self,
         cycle_id: str,

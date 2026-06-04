@@ -41,7 +41,7 @@ Key design decisions that follow from those constraints:
 - **ReAct, not zero-shot** A zero-shot specialist's audit record is "input in, output out." A ReAct specialist's record is a trace of thoughts, actions, and observations that a human can review.
 - **An MCP read surface, scoped per tier** Each specialist's telemetry access is a Model Context Protocol toolset limited to its own tier — a compute specialist cannot query database metrics. Scope is enforced at the tool surface, not by asking the agent nicely.
 - **Relational audit trail, not vector** The access patterns are foreign-key traversal and structured queries, not similarity search.
-- **Two LLM tiers** Haiku for specialists (many small ReAct turns). Sonnet for the Evaluator (one hard synthesis call per review). Matches model cost to where capability actually matters.
+- **Frontier model end-to-end** Specialists run ReAct loops over rich telemetry (nested distributions, time patterns, per-instance breakouts); the Evaluator synthesizes across them. Both warrant a capable model. Models are pluggable via `.env` for cost-sensitive deployments.
 - **Narrow Action Harness** The system is a recommender. Inflating the harness with execution would dilute the identity and invite a conflict of interest.
 
 The architecture is the direct response to these constraints: six agents in a hierarchy, governed by four cross-cutting harnesses (evidence-binding, auditability, scope discipline, and replayability). The system operates on zero internal trust: the Evaluator explicitly drift-checks every specialist. The human does not trust the agents; they trust the audit trail, because every step of the reasoning is traceable to the evidence that produced it.
@@ -223,7 +223,7 @@ The dataset lives at
 │  ├── harnesses/                      # The three harness modules (first cut)
 │  │  ├── input.py                      #   InputHarness: trigger + bundle validation
 │  │  ├── action.py                     #   ActionHarness: tool-call gate + recommendation gate (Phase 11)
-│  │  └── reasoning.py                  #   ReasoningHarness: pre-emit structured-output checks
+│  │  └── reasoning.py                  #   ReasoningHarness: pre-produce structured-output checks
 │  ├── models/                         # Pydantic schemas: single home for all data shapes
 │  │  ├── composite.py                  #   Composite, ScoringMetadata, TraceSection, etc.
 │  │  ├── telemetry.py                  #   MCP-server response models (all 18 tools typed)

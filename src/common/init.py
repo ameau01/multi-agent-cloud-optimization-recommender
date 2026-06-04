@@ -58,6 +58,12 @@ def ensure_env_loaded() -> None:
     Safe to call from anywhere. Subsequent calls are no-ops, avoiding
     the cost of re-reading the .env file on every audit-store
     construction.
+
+    Also quiets noisy third-party HTTP loggers (httpx, urllib3, openai,
+    anthropic) by default. Each Anthropic / OpenAI call goes through
+    httpx, which logs every request at INFO — on a ReAct loop that
+    means dozens of "HTTP/1.1 200 OK" lines per cycle. Override by
+    setting VERBOSE_HTTP_LOGS=1 in .env when debugging transport issues.
     """
     global _env_loaded
     if _env_loaded:
@@ -67,6 +73,31 @@ def ensure_env_loaded() -> None:
     from dotenv import load_dotenv  # noqa: PLC0415
     load_dotenv()
     _env_loaded = True
+    _quiet_http_loggers()
+
+
+def _quiet_http_loggers() -> None:
+    """Raise the noise floor on httpx/urllib3/anthropic/openai to WARNING.
+
+    Some langchain / langsmith setups install a RichHandler on the root
+    logger at INFO — even after setLevel(WARNING) on the per-library
+    logger, records can still surface if they propagate. Setting
+    propagate=False stops that bubble-up cleanly. Combined with the
+    level bump, it silences the "HTTP Request: POST https://...
+    HTTP/1.1 200 OK" line that each Anthropic / OpenAI call produces.
+
+    Opt out with VERBOSE_HTTP_LOGS=1 in env (.env). Safe to call
+    multiple times — both setLevel and the propagate assignment are
+    idempotent.
+    """
+    if os.environ.get("VERBOSE_HTTP_LOGS", "").lower() in ("1", "true", "yes"):
+        return
+    import logging  # noqa: PLC0415
+
+    for name in ("httpx", "httpcore", "urllib3", "openai", "anthropic"):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.WARNING)
+        lg.propagate = False
 
 
 # ============================================================

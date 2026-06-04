@@ -2,7 +2,7 @@
 
 The output mirrors sample_runs/traces/scenario_NN_trace.json:
   - Top-level provenance keys first: _note, _what_is_real,
-    _what_is_illustrative, _what_is_verifiable_today (each emitted only
+    _what_is_illustrative, _what_is_verifiable_today (each produced only
     when present on the composite's _provenance block).
   - Then the trace blocks in fixed order: review,
     input_harness_validation, system_mapper, supervisor_decision,

@@ -95,3 +95,137 @@ SPECIALIST_TOOL_ALLOWLIST: dict[str, SpecialistTools] = {
         "get_handcrafted_recommendation": None,
     },
 }
+
+
+# ============================================================
+# Tool signature catalog
+# ============================================================
+# Per-tool JSON-schema parameter spec. Mirrors the real Python
+# signatures in src/mcp_server/tools/*.py — the source of truth for
+# what each MCP tool actually accepts at runtime. The agent specialists
+# use this to build the `tools` argument they hand to the LLM, so the
+# model sees the right required/optional shape instead of a generic
+# {app_name, tier?, metric?} placeholder.
+#
+# Why this lives here (next to the allowlist) rather than in the agent
+# layer: scope is the single point that already knows which tools an
+# agent may call. Pinning the parameter shape next to the allow-list
+# keeps both facts in sync. Tests in tests/unit/mcp_server/test_scope.py
+# can assert the catalog covers exactly the set of allowed tools and
+# matches the registered FastMCP signatures.
+#
+# All five "telemetry math" tools take (app_name, tier, metric); two of
+# them have extra typed params (threshold/comparator,  n_bins). The
+# context/scenario tools take only app_name. get_configuration takes
+# (app_name, tier) — no metric.
+
+_APP_NAME_PROP: dict[str, str] = {"type": "string"}
+_TIER_PROP: dict[str, object] = {
+    "type": "string",
+    "description": "One of 'compute', 'database', 'cache', or 'network'.",
+}
+_METRIC_PROP: dict[str, str] = {
+    "type": "string",
+    "description": (
+        "Metric field name on the tier's telemetry records "
+        "(e.g. 'cpu', 'memory' on compute; 'latency' on database; "
+        "'hit_rate' on cache). Use the exact field name; the tool "
+        "returns ToolError(unknown_metric) on unknown names."
+    ),
+}
+
+
+def _schema_app_only() -> dict[str, object]:
+    """Schema for tools that take only app_name."""
+    return {
+        "type": "object",
+        "properties": {"app_name": _APP_NAME_PROP},
+        "required": ["app_name"],
+    }
+
+
+def _schema_app_tier() -> dict[str, object]:
+    """Schema for tools that take (app_name, tier)."""
+    return {
+        "type": "object",
+        "properties": {
+            "app_name": _APP_NAME_PROP,
+            "tier": _TIER_PROP,
+        },
+        "required": ["app_name", "tier"],
+    }
+
+
+def _schema_app_tier_metric() -> dict[str, object]:
+    """Schema for tools that take (app_name, tier, metric)."""
+    return {
+        "type": "object",
+        "properties": {
+            "app_name": _APP_NAME_PROP,
+            "tier": _TIER_PROP,
+            "metric": _METRIC_PROP,
+        },
+        "required": ["app_name", "tier", "metric"],
+    }
+
+
+TOOL_SCHEMA_CATALOG: dict[str, dict[str, object]] = {
+    # Telemetry math — all (app_name, tier, metric) plus optional tail.
+    "get_time_series":        _schema_app_tier_metric(),
+    "get_summary_statistics": _schema_app_tier_metric(),
+    "get_time_pattern":       _schema_app_tier_metric(),
+    "get_metric_distribution": {
+        "type": "object",
+        "properties": {
+            "app_name": _APP_NAME_PROP,
+            "tier": _TIER_PROP,
+            "metric": _METRIC_PROP,
+            "n_bins": {
+                "type": "integer",
+                "description": "Number of histogram bins. Default 10.",
+            },
+        },
+        "required": ["app_name", "tier", "metric"],
+    },
+    "detect_threshold_breaches": {
+        "type": "object",
+        "properties": {
+            "app_name": _APP_NAME_PROP,
+            "tier": _TIER_PROP,
+            "metric": _METRIC_PROP,
+            "threshold": {
+                "type": "number",
+                "description": (
+                    "Numeric cutoff. Typically derived from the SLA "
+                    "target via get_sla_target."
+                ),
+            },
+            "comparator": {
+                "type": "string",
+                "enum": ["gt", "lt"],
+                "description": "Default 'gt' (value > threshold).",
+            },
+        },
+        "required": ["app_name", "tier", "metric", "threshold"],
+    },
+    # Tier-only config (no metric).
+    "get_configuration": _schema_app_tier(),
+    # Per-tier specials and context — app_name only.
+    "get_per_instance_breakout":     _schema_app_only(),
+    "get_top_queries":               _schema_app_only(),
+    "get_top_cache_keys":            _schema_app_only(),
+    "get_business_context":          _schema_app_only(),
+    "get_sla_target":                _schema_app_only(),
+    "get_monthly_cost":              _schema_app_only(),
+    "get_before_after_evidence":     _schema_app_only(),
+    "get_scenario_metadata":         _schema_app_only(),
+    "get_terraform":                 _schema_app_only(),
+    "get_correlation_evidence":      _schema_app_only(),
+    "get_handcrafted_recommendation": _schema_app_only(),
+    # No args at all.
+    "list_scenarios": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+}

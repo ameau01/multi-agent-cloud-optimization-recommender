@@ -54,7 +54,7 @@
     "notes": "Index creation on tables with millions of rows should use CREATE INDEX CONCURRENTLY to avoid table locks. Test each index in staging first to validate query plan improvements."
   },
   "scoring_metadata": {
-    "description": "Slow DB queries cascade into elevated compute latency. Multi-tier reasoning REQUIRED: the recommendation must show the agent recognized BOTH tiers are involved. DB->compute cascade. query_cache_optimization is the canonical fix. pool_sizing and replica_adjustment were defensible alternatives but the gold's primary action is query+index optimization plus read replicas.",
+    "description": "Slow DB queries cascade into elevated compute latency. Multi-tier reasoning REQUIRED: the recommendation must show the agent recognized BOTH tiers are involved. DB->compute cascade. The gold's specific_change is query+index optimization plus read replicas; the rationale below names three defensible action_category framings of that same intervention and Correctness accepts any of them. The richness layers (Mid / Rich) compare the agent's specific_change prose against the gold's, so the action_category choice is a structural-ack only — substance is judged separately.",
     "finding_type_allowed": [
       "issue_found"
     ],
@@ -65,9 +65,11 @@
       "compute"
     ],
     "action_category_allowed": [
-      "query_cache_optimization"
+      "query_cache_optimization",
+      "pool_sizing",
+      "replica_adjustment"
     ],
-    "action_category_rationale": "Three defensible categories: query_cache_optimization (fix the slow queries), pool_sizing (fix the connection bottleneck), replica_adjustment (add read replicas to absorb load).",
+    "action_category_rationale": "Three defensible categories: query_cache_optimization (fix the slow queries), pool_sizing (fix the connection bottleneck), replica_adjustment (add read replicas to absorb load). All three pass Correctness; the richness layers judge how completely the agent describes the actual fix.",
     "must_cite_fixture": "top_queries"
   }
 }

@@ -4,12 +4,19 @@ Loads the 18 gold answers, the per-scenario scoring rules, the vendored
 scenario metadata, and the mock predictions used by edge-case tests.
 Everything stays local so integration tests run hermetically with no
 Hugging Face download.
+
+Env loading note: the root `tests/conftest.py` handles env setup for
+the whole suite (and deliberately disables LangSmith tracing + clears
+LLM API keys + marks `ensure_env_loaded()` as already-run, to keep
+unit/integration tests offline-safe). We do NOT call `load_dotenv()`
+here — doing so would restore the cleared keys from .env, re-enabling
+real LLM network calls and re-introducing the multi-minute hang at
+the agent-test block. If a specific integration test legitimately
+needs an API key, it should fetch and skip explicitly the way
+`tests/judge_live/` does.
 """
 
 from __future__ import annotations
-
-from dotenv import load_dotenv
-load_dotenv()
 
 import json
 import sys

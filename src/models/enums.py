@@ -6,7 +6,7 @@ This is the single home for type vocabulary used by multiple subsystems:
     scope.py allow-lists, evaluator validators, audit AgentName context.
   - `FindingType`, `ActionCategory` — domain enums used by Composite, the
     evaluator, and audit event content.
-  - `AgentName` — the 12 agents and harnesses that can emit audit records.
+  - `AgentName` — the 12 agents and harnesses that can produce audit records.
   - `RecordCategory`, `RecordType` — audit-trail event taxonomy.
   - `HarnessName`, `Verdict`, `HarnessRecordType` — harness_trail vocabulary
     (the second table, recording enforcement events).
@@ -79,16 +79,16 @@ ActionCategory = Literal[
 
 
 # ============================================================
-# AgentName — every entity that can emit an audit record
+# AgentName — every entity that can produce an audit record
 # ============================================================
 # Twelve values covering: the orchestration (supervisor, system
 # mapper, three tier specialists, cross-tier evaluator), the eval-set
-# scorer (evaluator_harness), four harness emitters (input/action/
+# scorer (evaluator_harness), four harness producers (input/action/
 # reasoning/audit), and the human reviewer.
 #
-# The future-emitter values (input_harness, action_harness, reasoning_
+# The future-producer values (input_harness, action_harness, reasoning_
 # harness, hitl_decision via human_reviewer) are declared now even
-# though their emit code lands later — keeps the Literal complete so
+# though their produce code lands later — keeps the Literal complete so
 # the audit store accepts records from them when the harness phase ships.
 AgentName = Literal[
     "supervisor",
@@ -133,7 +133,7 @@ RecordType = Literal[
     "thought",                    # one ReAct loop thought step
     "specialist_finding",         # a tier specialist's verdict
     "evaluator_record",           # cross-tier evaluator synthesis
-    "recommendation",             # final Composite emitted by the cycle
+    "recommendation",             # final Composite produced by the cycle
     "hitl_decision",              # human approve/reject/defer (future)
     # ---- evidence-category types ----
     "tool_call",                  # MCP tool invocation
@@ -147,7 +147,7 @@ RecordType = Literal[
 
 
 # ============================================================
-# HarnessName — which harness emitted a harness_trail event
+# HarnessName — which harness produced a harness_trail event
 # ============================================================
 # The Input Harness validates the ingest bundle, the Action Harness
 # scopes tool calls and gates the final recommendation, and the
@@ -180,7 +180,7 @@ HarnessRecordType = Literal[
     "input_validation",           # Input Harness — schema, completeness, trigger
     "tool_call_policy_check",     # Action Harness — per-call scope verdict
     "gate_verdict",               # Action Harness — final recommendation gate
-    "reasoning_check",            # Reasoning Harness — structured-output pre-emit
+    "reasoning_check",            # Reasoning Harness — structured-output pre-produce
     "orchestration_check",        # Orchestration Harness — cycle-level transition
 ]
 
@@ -191,7 +191,11 @@ HarnessRecordType = Literal[
 # One value for now; reserved Literals for the 11b+ orchestration checks
 # (validate_specialists_completed, should_proceed_to_evaluator) are
 # deliberately omitted here and will land alongside the specialists.
-OrchestrationCheckName = Literal["cycle_completion_legitimate"]
+OrchestrationCheckName = Literal[
+    "cycle_completion_legitimate",
+    "validate_specialists_completed",
+    "should_proceed_to_evaluator",
+]
 
 
 # ============================================================

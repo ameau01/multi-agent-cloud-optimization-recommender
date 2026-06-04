@@ -2,7 +2,7 @@
 
   - `input` — schema/completeness/trigger validation at ingest.
   - `action` — per-tool-call policy checks plus the final recommendation gate.
-  - `reasoning` — pre-emit structured-output checks (evidence_refs, finding_type,
+  - `reasoning` — pre-produce structured-output checks (evidence_refs, finding_type,
     confidence-breakdown shape) on specialist findings and the evaluator record.
 
 Each harness is a small class that:

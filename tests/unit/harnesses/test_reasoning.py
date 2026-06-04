@@ -1,6 +1,6 @@
 """Tests for ReasoningHarness.
 
-Covers three pre-emit checks:
+Covers three pre-produce checks:
   - check_finding_type rejects values outside the four-valued set.
   - check_evidence_refs_minimum enforces non-empty refs on issue_found,
     short-circuits the threshold for non-issue finding_types.

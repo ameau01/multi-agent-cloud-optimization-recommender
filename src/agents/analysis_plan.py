@@ -1,7 +1,7 @@
 """The AnalysisPlan: System Mapper's output, Supervisor's input.
 
 The System Mapper parses the application's terraform + metadata and
-emits an AnalysisPlan describing which infrastructure tiers are in
+produces an AnalysisPlan describing which infrastructure tiers are in
 scope and which tier specialists should be invoked. The Supervisor
 reads this plan and fans out to the named specialists.
 

@@ -19,7 +19,7 @@ Run:
     uv run python tests/list_mcp_tools.py  # direct Python invocation
 
 Options:
-    --json                Emit the catalog as machine-readable JSON.
+    --json                Produce the catalog as machine-readable JSON.
     --schema TOOL_NAME    Print the full input/output JSON schema for one tool.
 """
 
@@ -156,7 +156,7 @@ def render_schema(tool_name: str, tools: list) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    parser.add_argument("--json", action="store_true", help="produce JSON instead of a table")
     parser.add_argument("--schema", metavar="TOOL_NAME",
                         help="print the JSON schema for one tool and exit")
     args = parser.parse_args()

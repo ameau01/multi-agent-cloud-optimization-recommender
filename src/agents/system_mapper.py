@@ -2,7 +2,7 @@
 
 The System Mapper is the first agent the Supervisor calls. It parses
 the application's terraform + metadata, determines which infrastructure
-tiers are present, and emits an `AnalysisPlan` naming the specialists
+tiers are present, and produces an `AnalysisPlan` naming the specialists
 the Supervisor should invoke.
 
 Code-only in Phase 11a. The System Mapper does not call the LLM here
@@ -73,8 +73,8 @@ class SystemMapperNode:
         """Build an AnalysisPlan for the cycle's application.
 
         Returns a partial-state dict that LangGraph merges into the
-        full CycleState. The merge sets state.analysis_plan,
-        state.has_system_map, and state.last_system_mapper_output_id —
+        full CycleState. The merge sets state["analysis_plan"],
+        state["has_system_map"], and state["last_system_mapper_output_id"] —
         the last so the Supervisor can cite this row as evidence when
         it routes the next decision.
 
@@ -90,7 +90,7 @@ class SystemMapperNode:
         # failure — the orchestrator wrapper catches SystemMapperError and
         # routes to cycle_complete with failed_at_stage='system_mapper'.
         check = self._reasoning.check_decision_evidence_backed(
-            cycle_id=state.cycle_id,
+            cycle_id=state["cycle_id"],
             decision_payload={"evidence_refs": evidence_refs},
             related_event_id=None,
             record_type="system_mapper_output",
@@ -140,7 +140,7 @@ class SystemMapperNode:
         tf_summary = self._summarize_terraform(terraform_payload)
 
         plan = AnalysisPlan(
-            application_id=state.application_id,
+            application_id=state["application_id"],
             tiers_detected=tiers_detected,
             specialists_to_invoke=specialists,
             terraform_resources_summary=tf_summary,
@@ -170,16 +170,16 @@ class SystemMapperNode:
         result = dispatch_tool(
             self._store,
             self._action_harness,
-            cycle_id=state.cycle_id,
+            cycle_id=state["cycle_id"],
             agent="system_mapper",
             tool_name=tool_name,
-            arguments={"app_name": state.application_id},
+            arguments={"app_name": state["application_id"]},
         )
         if (not result.passed or result.observation is None
                 or result.observation_record_id is None):
             raise SystemMapperError(
                 f"System Mapper could not fetch {tool_name} for "
-                f"{state.application_id}: {result.rejection_reason}"
+                f"{state['application_id']}: {result.rejection_reason}"
             )
         return result.observation, result.observation_record_id
 
@@ -252,7 +252,7 @@ class SystemMapperNode:
             "evidence_refs": list(evidence_refs),
         }
         record = AuditRecord(
-            cycle_id=state.cycle_id,
+            cycle_id=state["cycle_id"],
             parent_id=None,
             category="decision",
             type="system_mapper_output",

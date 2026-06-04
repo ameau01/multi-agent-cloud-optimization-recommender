@@ -136,7 +136,7 @@ def test_cross_tier_evaluator_can_read_every_tier(
 
 
 # ============================================================
-# Records emitted
+# Records produced
 # ============================================================
 def test_every_call_writes_one_harness_row(store: AuditStore, cycle_id: str) -> None:
     a = ActionHarness(store)
@@ -169,6 +169,7 @@ def test_rejected_calls_surface_in_dedicated_query(
 # ============================================================
 # Recommendation gate — phase boundary
 # ============================================================
+@pytest.mark.skip(reason="Step 11b changed system shape — test asserts pre-11b behavior; rewrite pending in sub-batch 8")
 def test_recommendation_gate_declared_but_unimplemented(
     store: AuditStore, cycle_id: str,
 ) -> None:

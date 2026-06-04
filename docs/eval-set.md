@@ -21,7 +21,7 @@ This split is the production-honest position. A purely deterministic scorer for 
 
 The two-mode split was not the first attempt. It is where two failed attempts led.
 
-- **Attempt 1: strict structured output.** The agent was asked to emit a rigid recommendation that an AWS environment could consume directly. Real recommendations vary too much; the model could not reliably fit high-variance advice into a fixed schema. Conclusion: the output is inherently natural language.
+- **Attempt 1: strict structured output.** The agent was asked to produce a rigid recommendation that an AWS environment could consume directly. Real recommendations vary too much; the model could not reliably fit high-variance advice into a fixed schema. Conclusion: the output is inherently natural language.
 - **Attempt 2: fully deterministic scoring.** With NLP output, Correctness could be enumerated, but quality was scored by keyword groups. That became a brittle rule-maintenance problem — every new phrasing the model produced needed another keyword or enum, and direction and magnitude still slipped through. Conclusion: rules cannot grade rich NLP.
 - **Attempt 3 (current): split the modes.** Deterministic checks for the enumerable decision spine; an audited LLM judge for the one semantically rich field; the judge informs the human-in-the-loop but never overturns the objective layers.
 
@@ -109,7 +109,7 @@ The judge never decides whether the answer is correct; Correctness does that det
 
 ### Short-circuit rule for no-action findings
 
-When the gold's `finding_type` is a no-action value, Mid and Rich are bypassed entirely — the judge is not called. The scorer emits a single `short_circuit` marker for each of those layers and runs none of the richness checks.
+When the gold's `finding_type` is a no-action value, Mid and Rich are bypassed entirely — the judge is not called. The scorer produces a single `short_circuit` marker for each of those layers and runs none of the richness checks.
 
 Two no-action finding types are used by current golds:
 
@@ -143,7 +143,7 @@ Each `rules.json` file carries the four enum allow-lists, a `description`, optio
 
 Each layer catches a different failure mode. Collapsing them into a single pass/fail score would hide the diagnostic signal that makes the eval useful, and would blur the deterministic verdicts into the opinionated ones. The four layers map to the discrimination story the architecture is meant to tell:
 
-- **Shape** is meant to be trivial — any agent that emits well-formed JSON passes; it catches malformed output, not quality.
+- **Shape** is meant to be trivial — any agent that produces well-formed JSON passes; it catches malformed output, not quality.
 - **Correctness** is the main objective gate — a random agent picks the wrong finding type most of the time, and a single-shot model usually gets the easy scenarios right but misses on cross-tier and deferral cases.
 - **Mid** separates careless from careful among agents that already passed Correctness — the LLM judge scores how well the prose engages with the right evidence.
 - **Rich** is meant to be hard — passing requires both a high judge score and structurally complete supporting fields; a single-shot agent rarely clears both bars in one pass; an orchestrated specialist, scoped narrowly, can.

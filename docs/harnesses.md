@@ -44,13 +44,13 @@ The cognitive infrastructure that makes specialist and Evaluator reasoning credi
 
 ### What it enforces
 
-**Structured output with evidence-binding.** Every specialist finding and every Evaluator synthesis is emitted as a structured object with a fixed schema. Every recommendation field within the structure must reference the specific read operations (and their results) that justified it. A recommendation without evidence references is structurally rejected before it can be emitted.
+**Structured output with evidence-binding.** Every specialist finding and every Evaluator synthesis is produced as a structured object with a fixed schema. Every recommendation field within the structure must reference the specific read operations (and their results) that justified it. A recommendation without evidence references is structurally rejected before it can be produced.
 
 The output schema for a specialist finding:
 
 | Field                   | Purpose                                                                                                                |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `finding_type`          | One of `issue_found`, `no_issue_found`, `insufficient_data`. Explicitly three-valued to prevent action bias.           |
+| `finding_type`          | One of `issue_found`, `no_issue_found`, `diagnostic_deferral`, `insufficient_data`. Explicitly four-valued to prevent action bias. |
 | `recommendation`        | The specific action recommended (populated only when `finding_type = issue_found`).                                    |
 | `evidence_refs`         | List of read-operation results that justified the recommendation. Required non-empty when a recommendation is present. |
 | `reasoning_trace`       | The ReAct hypothesize / act / observe trace that led to the finding.                                                   |
@@ -59,7 +59,7 @@ The output schema for a specialist finding:
 
 The Evaluator's output schema extends this with cross-tier interactions, trade-off scores, drift-check verdicts per specialist, and evaluator-level confidence.
 
-**Evidence sufficiency threshold.** A `recommendation` field can only be populated if `evidence_refs` exceeds a minimum count and meets the specialist's evidence threshold for its domain. Falling below either threshold forces the specialist to emit `no_issue_found` or `insufficient_data`.
+**Evidence sufficiency threshold.** A `recommendation` field can only be populated if `evidence_refs` exceeds a minimum count and meets the specialist's evidence threshold for its domain. Falling below either threshold forces the specialist to produce one of the three non-action finding types (`no_issue_found`, `diagnostic_deferral`, or `insufficient_data`), which the Action Harness then accepts as a legitimate terminal outcome rather than a failure.
 
 **Two-level confidence scoring.** Specialists produce a specialist-level confidence. The Evaluator produces an evaluator-level confidence. The two levels measure different things and combine differently. Detail below.
 
@@ -74,7 +74,7 @@ At every specialist ReAct turn (each thought → action → observation cycle is
 The Reasoning Harness is where the architectural claim "this system reasons soundly" becomes a structural property rather than a hope.
 
 - Without evidence-binding, recommendations are leaps.
-- Without the three-valued `finding_type`, specialists invent problems.
+- Without the four-valued `finding_type`, specialists invent problems.
 - Without two-level confidence, the drift-check has nothing to gate on.
 - Without trade-off scoring, the synthesis is "pick a winner" rather than "balance dimensions."
 
@@ -92,7 +92,7 @@ The system therefore produces **two confidence scores at different layers, measu
 
 **Specialist-level confidence.** Produced by each Tier Specialist as part of its structured finding. Combines two signals, both measurable within the specialist's own tier:
 
-- **Evidence sufficiency.** How many evidence references support the conclusion, and how well they cover the relevant time windows. A finding citing one tool-call observation is weaker than one citing four observations from independent angles. The Reasoning Harness enforces a minimum count before any `issue_found` can be emitted.
+- **Evidence sufficiency.** How many evidence references support the conclusion, and how well they cover the relevant time windows. A finding citing one tool-call observation is weaker than one citing four observations from independent angles. The Reasoning Harness enforces a minimum count before any `issue_found` can be produced.
 - **Within-tier pattern strength.** For findings that depend on a recurring pattern, daily spikes, business-hours load, sustained underutilization, how well the pattern holds. A pattern that holds on 11 of 14 days (the dataset's "11 of 14" rule) is unambiguous; one that holds on 7 of 14 is suggestive but not strong.
 
 The specialist confidence is the product of these two signals, each normalized to a 0, 1 scale. The full breakdown is logged so a reviewer can see which sub-signal drove the score.
@@ -139,8 +139,8 @@ The Evaluator runs drift-check **before** cross-tier mapping and synthesis so a 
 
 Two policy choices are intentionally tunable rather than hardcoded:
 
-- **Aggregation policy for specialist confidence.** Should the Evaluator average specialist confidences, take the minimum, or weight by drift-check verdict? Each has a defensible rationale. The build phase tunes this against the eval set.
-- **Confidence thresholds.** Below what confidence does the Supervisor retry a specialist? Below what evaluator confidence does the recommendation get flagged as low-confidence in the review packet? These are configuration, not constants, and will be tuned during build.
+- **Aggregation policy for specialist confidence.** Should the Evaluator average specialist confidences, take the minimum, or weight by drift-check verdict? Each has a defensible rationale; the choice is tuned against the eval set.
+- **Confidence thresholds.** Below what evaluator confidence does the recommendation get flagged as low-confidence in the review packet? Below what specialist confidence should the Supervisor (when the retry / pass-through-with-flag / defer-to-HITL branch lands — see [agents.md §1](agents.md)) treat a finding as suspect? These are configuration, not constants, and will be tuned during build. The Supervisor's branch is not yet wired; the Evaluator's confidence-flag path is.
 
 Both choices are called out as configuration to make them visible and tunable rather than hidden in code. Recognizing them as choices worth surfacing is itself part of the signal.
 
@@ -200,25 +200,22 @@ Inflating the Action Harness to look bigger would dilute the system's identity. 
 
 ## 4. Orchestration Harness
 
-**What it provides.** Validation of *cycle-level* transitions — events that no single agent owns because they are about the cycle's overall shape rather than any one agent's decision. Where the other three harnesses gate fine-grained events (one tool call, one structured output, one trigger validation), the Orchestration Harness gates the moments between phases.
+**What it provides.** Validation of *cycle-level* transitions — events that no single agent owns because they are about the cycle's overall shape rather than any one agent's decision. Where the other three harnesses gate fine-grained events (one tool call, one structured output, one trigger validation), the Orchestration Harness gates the moments between cycle stages.
 
-**What it checks today.**
+**What it checks today.** Three checks, each gating a different cycle-level transition.
+
+- **`validate_specialists_completed`** — fires immediately before the Cross-Tier Evaluator runs. Confirms every specialist the Supervisor dispatched produced a finding before synthesis is attempted. Rejection (e.g. a specialist crashed mid-cycle and never wrote a finding) coerces the terminal to `"failed"` with `failed_at_stage="orchestration"` so synthesis never runs against a partial findings set.
+
+- **`should_proceed_to_evaluator`** — also fires before the Cross-Tier Evaluator, after `validate_specialists_completed`. Gates premature synthesis when the cumulative specialist evidence is too thin to support a cross-tier reconciliation. Rejection same handling as above.
 
 - **`cycle_completion_legitimate`** — fires immediately before the runner writes `cycle_completed`. Confirms the terminal state the runner is about to record is consistent with what actually happened in the cycle. Three rejection categories:
   1. `terminal_state == "completed"` but no specialists were invoked. A cycle that completes without doing any specialist work is not legitimately "completed" — the correct terminal is `"no_specialists"`.
   2. `terminal_state == "failed"` but `failed_at_stage` is `None`. Every failure must name its stage so the renderer and the eval scripts can branch on it.
   3. `terminal_state == "rejected_input"` but `failed_at_stage` is not `"input_harness"`. Only the Input Harness can produce this terminal; any other stage stamping it is a bug.
 
-A rejection coerces the terminal to `"failed"` with `failed_at_stage="orchestration"` and a `failure_reason` quoting the harness verdict, so the rejection is visible in both the audit trail (the failed completion) and the harness trail (the rule that was violated).
+A rejection on any of the three coerces the terminal to `"failed"` with `failed_at_stage="orchestration"` and a `failure_reason` quoting the harness verdict, so the rejection is visible in both the audit trail (the failed completion) and the harness trail (the rule that was violated).
 
-**Lifecycle exemption rule.** The `cycle_started` and `cycle_completed` events are exempt from the Reasoning Harness's `decision_evidence_backed` check. `cycle_started` has nothing earlier to cite; `cycle_completed` summarizes the entire spine before it via `failed_at_stage` and `final_status` rather than a discrete `evidence_refs` list. The legitimacy of `cycle_completed` is instead validated by the Orchestration Harness's `cycle_completion_legitimate` check — a deliberate split, not an oversight.
-
-**What it will check at maturity (Phase 11b+).**
-
-- `validate_specialists_completed` — fires before the Cross-Tier Evaluator runs; confirms every specialist the Supervisor dispatched produced a finding before synthesis is attempted.
-- `should_proceed_to_evaluator` — at the Supervisor's synthesize decision; gates premature handoff when specialist evidence is too thin to support synthesis.
-
-These are deliberately deferred to 11b because they require specialists to exist; the scaffolding (harness namespace, route() method, harness_trail rows with `harness="orchestration"`) is in place now so they land *into* a four-harness model rather than requiring one to be retrofitted.
+**Lifecycle exemption rule.** The `cycle_started` and `cycle_completed` events are exempt from the Reasoning Harness's `decision_evidence_backed` check. `cycle_started` has nothing earlier to cite; `cycle_completed` summarizes the entire cycle before it via `failed_at_stage` and `final_status` rather than a discrete `evidence_refs` list. The legitimacy of `cycle_completed` is instead validated by the Orchestration Harness's `cycle_completion_legitimate` check — a deliberate split, not an oversight.
 
 **Why it is its own harness.** Cycle-level transitions are inherently cross-agent: no single agent owns whether a cycle should complete, whether the Evaluator should run, or whether a particular transition is valid given what came before. Putting these checks inside any one agent (the Supervisor, say) would mean that agent is gating itself — which loses the property that every verdict has an external referee. The Orchestration Harness is that referee.
 
@@ -237,14 +234,14 @@ Full schema and replayability story live in `audit-trail.md`. The summary here:
 
 - Trigger events, review request, bundle hash, Input Harness validation outcomes.
 - System Mapper events, architecture model produced, analysis plan generated.
-- Supervisor decisions, which specialists invoked, why; low-confidence handling decisions; retries.
+- Supervisor decisions, which specialists invoked, why, and the evidence_refs each routing decision relied on. (Confidence-based retry / pass-through-with-flag / defer-to-HITL branches are design intent on the Supervisor and not yet wired — see [agents.md §1](agents.md).)
 - Specialist ReAct steps, every thought, action, observation. Each tool call logged with its parameters and result.
 - Specialist findings, `finding_type`, recommendation (if any), `evidence_refs`, `reasoning_trace`, confidence breakdown.
 - Evaluator events, drift-check verdicts per specialist, cross-tier interactions identified, trade-off scores, synthesis output, evaluator confidence breakdown.
 - Action Harness events, recommendation gate verdict, severity classification, duplication check result.
 - HITL events, review packet surfaced, human decision (approve/reject/defer) with timestamp and any reviewer notes.
 
-Every record carries a stable identifier, the agent or harness that emitted it, and foreign-key references to upstream records in the chain.
+Every record carries a stable identifier, the agent or harness that produced it, and foreign-key references to upstream records in the chain.
 
 **Append-only by design.** Records are never updated or deleted. Corrections produce new records that reference the original. This is what makes "replayable" a real property rather than a hope.
 
@@ -268,7 +265,7 @@ It is also the artifact that turns "I built an agent system" into "I built an ag
 
 The harnesses are independent in scope but cooperative in practice. A representative interaction:
 
-A Compute Analyst invokes a tool call to detect threshold breaches on `cpu_p95`. The Action Harness validates that this read operation is in the Compute Analyst's scope (it is). The tool call runs and returns results. The Reasoning Harness requires that any conclusion citing this tool call include the call as an `evidence_ref`. The Persistent Action Record logs the tool call's intent and result to `audit_records` (the substance the agent saw), the Action Harness's policy-check verdict to `harness_trail` (the enforcement record), and when the specialist concludes, the finding citing this evidence lands back in `audit_records`. Three writes across two tables, one tool call.
+A Compute Analyst invokes a tool call to detect threshold breaches on `cpu_p95`. The Action Harness validates that this read operation is in the Compute Analyst's scope (it is). The tool call runs and returns results. The Reasoning Harness requires that any conclusion citing this tool call include the call as an `evidence_ref`. The dispatch shim logs the tool call's intent and result to `audit_records` (the substance the agent saw) and the Action Harness's policy-check verdict to `harness_trail` (the enforcement record); when the specialist concludes, the finding citing this evidence lands back in `audit_records`. Three writes across two tables, one tool call.
 
 Four harnesses, one tool call, four properties enforced: scope (Action Harness), evidence-binding (Reasoning Harness), cycle-level legitimacy (Orchestration Harness, which will later gate "should we now run the Evaluator on these findings?"), and, implicitly, the assurance that the tool call's inputs were valid (Input Harness validated them at bundle ingest). Every verdict — from any harness — lands in the same `harness_trail` table, parallel to the substance writes in `audit_records`.
 

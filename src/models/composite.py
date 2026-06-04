@@ -26,7 +26,7 @@ same code paths as a strict gold. Composite IS a Recommendation via
 Liskov substitution.
 
 Audit-trail sub-shapes inside TraceSection stay as `dict[str, Any]`;
-their typing is deferred until each harness/agent emitter exists.
+their typing is deferred until each harness/agent producer exists.
 
 Schema version is 1.0. Bump explicitly on breaking changes.
 """
@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 SCHEMA_VERSION = "1.0"
@@ -58,7 +58,7 @@ class Conclusion(BaseModel):
 
 class Evidence(BaseModel):
     """Evidence bullets. All three lists Optional and default None so an
-    agent can emit any subset; gold answers populate all three."""
+    agent can produce any subset; gold answers populate all three."""
     telemetry_observations: list[str] | None = None
     infrastructure_context: list[str] | None = None
     correlation_observations: list[str] | None = None
@@ -67,12 +67,36 @@ class Evidence(BaseModel):
 
 
 class ProjectedState(BaseModel):
+    # These three are typed as str because gold composites populate them
+    # with qualitative ranges like "40-50%", "~60%", "80-140". The agent's
+    # LLM, given a tool schema asking for a string, sometimes ignores the
+    # type and returns a bare number (80.85, 67.4, 166). Rejecting those
+    # crashed scoring + rendering on 11 of 18 scenarios in the integration
+    # test. The validator below coerces ints/floats to their str form so
+    # the model accepts both shapes; gold composites round-trip unchanged.
     cpu_p95_pct_estimate: str | None = None
     memory_p95_pct_estimate: str | None = None
     latency_p95_ms_estimate: str | None = None
     sla_availability_preserved: bool | None = None
     notes: str | None = None
     model_config = ConfigDict(extra="allow")
+
+    @field_validator(
+        "cpu_p95_pct_estimate",
+        "memory_p95_pct_estimate",
+        "latency_p95_ms_estimate",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_numeric_to_str(cls, value: Any) -> Any:
+        """Stringify ints/floats. Leaves str/None unchanged; passes other
+        types through so Pydantic's normal error surfaces if the agent
+        returns something exotic (list, dict, etc.)."""
+        if isinstance(value, bool):  # bool is an int subclass; exclude.
+            return value
+        if isinstance(value, (int, float)):
+            return str(value)
+        return value
 
 
 class CostImpact(BaseModel):
@@ -125,10 +149,10 @@ class ScoringMetadata(BaseModel):
 # Optional: audit trail (populated for full composites)
 # ============================================================
 class TraceSection(BaseModel):
-    """Audit trail. Sub-fields stay as dict[str, Any] until each emitter
+    """Audit trail. Sub-fields stay as dict[str, Any] until each producer
     exists — typing them now would be premature commitment to shapes the
     harnesses and agents have not yet produced. Next phase tightens
-    these per-emitter."""
+    these per-producer."""
     review: dict[str, Any] | None = None
     input_harness_validation: dict[str, Any] | None = None
     system_mapper: dict[str, Any] | None = None
@@ -194,7 +218,7 @@ class Recommendation(BaseModel):
     for the evaluator's deterministic layers to run.
 
     All other top-level fields and every sub-object are Optional. The
-    agent may emit any subset; the evaluator scores what is present and
+    agent may produce any subset; the evaluator scores what is present and
     marks unscored layers as 'skipped' or 'failed'.
 
     extra='allow' lets the agent attach debugging or trace fields

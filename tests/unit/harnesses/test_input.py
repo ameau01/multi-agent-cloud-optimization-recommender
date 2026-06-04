@@ -4,7 +4,7 @@ Covers:
   - validate_trigger accepts every published app-NN id (01..18).
   - validate_trigger rejects bogus ids (wrong prefix, out-of-range NN).
   - validate_application_known agrees with the published-set.
-  - Each check emits exactly one harness_trail row with the right shape.
+  - Each check produces exactly one harness_trail row with the right shape.
   - validate_bundle is declared but raises NotImplementedError (phase
     boundary; signature stable).
 """

@@ -116,6 +116,51 @@ def _banner(rc: ReportContent | None) -> str | None:
     return "\n".join(quoted)
 
 
+# Human-readable label for each action_category enum value. The raw
+# enum value is the machine identity (it's what the eval-set's
+# Correctness layer checks against the gold's allowed list); the label
+# is the prose scope a reviewer needs to read the report without
+# misinterpreting the enum's NAME as the recommendation's CONTENT.
+#
+# The most important entry is `query_cache_optimization` — its name
+# reads as "do something with a cache layer" but its actual scope in
+# this project is "fix the query layer" (indexes, query rewrites, and/
+# or query caching). A live recommendation can correctly land this
+# category while explicitly excluding a cache layer; without the
+# label expansion a careful reviewer reads that as a self-
+# contradiction.
+_ACTION_CATEGORY_LABELS: dict[str, str] = {
+    "query_cache_optimization":
+        "query-layer fixes (indexes, query rewrites, and/or caching)",
+    "cache_capacity_adjustment":
+        "cache tier capacity changes (memory, node count, sharding)",
+    "replica_adjustment":
+        "read-replica scaling and R/W splitting",
+    "pool_sizing":
+        "connection-pool sizing",
+    "rightsizing":
+        "instance-size or fleet rightsizing",
+    "scaling_policy_change":
+        "auto-scaling policy and thresholds",
+    "load_balancer_reconfiguration":
+        "load-balancer routing or algorithm changes",
+    "network_topology_change":
+        "network topology or routing changes",
+    "sla_review":
+        "SLA target review (no infrastructure change)",
+}
+
+
+def _format_action_category(value: str | None) -> str:
+    """Render `action_category` as raw enum + short scope clarification."""
+    if not value:
+        return ""
+    label = _ACTION_CATEGORY_LABELS.get(value)
+    if label is None:
+        return f"`{value}`"
+    return f"`{value}` — {label}"
+
+
 def _final_recommendation(rc: ReportContent | None,
                           composite: Composite) -> str:
     if rc and rc.final_recommendation_rows:
@@ -133,7 +178,9 @@ def _final_recommendation(rc: ReportContent | None,
                          "value": f"`{composite.secondary_tier}`"})
         if composite.action_category:
             rows.append({"field": "Action category",
-                         "value": f"`{composite.action_category}`"})
+                         "value": _format_action_category(
+                             composite.action_category
+                         )})
 
     return "## Final recommendation\n\n" + _key_value_table(rows)
 
@@ -183,8 +230,16 @@ def render_report(composite: Composite) -> str:
     Sections present in `composite.report_content` are rendered;
     missing sections are omitted. Always finishes with a single
     trailing newline.
+
+    Accepts either a full `Composite` (gold or sample_runs variant) or
+    a bare `Recommendation` (the lenient agent-output schema, which
+    doesn't carry `report_content`). For a Recommendation, all sections
+    sourced from `report_content` are skipped and the output is the
+    degenerate report — title block + final-recommendation table +
+    `specific_change` prose. Use `getattr` so this stays a Liskov-safe
+    pass-through rather than a hasattr-branch ladder.
     """
-    rc = composite.report_content
+    rc = getattr(composite, "report_content", None)
 
     sections: list[str] = []
 

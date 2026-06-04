@@ -7,7 +7,7 @@ Three tables, all append-only:
     the decision-vs-evidence reports via `category`.
   - `harness_trail` — enforcement events (Input Harness validations,
     Action Harness policy checks and gate verdicts, Reasoning Harness
-    pre-emit checks). When a tool call is rejected, this is the only
+    pre-produce checks). When a tool call is rejected, this is the only
     table that records it — its absence from audit_records is itself
     an audit signal.
   - `operations` — post-hoc operations on a completed cycle's
