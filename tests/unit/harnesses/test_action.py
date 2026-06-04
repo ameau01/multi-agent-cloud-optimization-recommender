@@ -166,16 +166,3 @@ def test_rejected_calls_surface_in_dedicated_query(
     assert rejs[0].content["tool_name"] == "get_top_queries"
 
 
-# ============================================================
-# Recommendation gate — phase boundary
-# ============================================================
-@pytest.mark.skip(reason="Step 11b changed system shape — test asserts pre-11b behavior; rewrite pending in sub-batch 8")
-def test_recommendation_gate_declared_but_unimplemented(
-    store: AuditStore, cycle_id: str,
-) -> None:
-    """Signature stable; body lands in the next phase once recommendations
-    flow end-to-end."""
-    a = ActionHarness(store)
-    with pytest.raises(NotImplementedError, match="next phase"):
-        a.check_recommendation_gate(cycle_id, recommendation_record_id=1,
-                                    recommendation_content={})

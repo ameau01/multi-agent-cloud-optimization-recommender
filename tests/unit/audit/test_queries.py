@@ -4,7 +4,6 @@ Covers:
   - get_cycle_events returns all events for a cycle in insertion order
   - get_decision_chain CTE walks parent_id backward, filters to decisions
   - get_evidence_consumers via json_each finds decisions citing evidence
-  - get_evaluations_for_cycle groups ops by op_id
   - find_recommendation_for_cycle returns the recommendation record
 """
 
@@ -17,7 +16,6 @@ from src.audit.queries import (
     find_recommendation_for_cycle,
     get_cycle_events,
     get_decision_chain,
-    get_evaluations_for_cycle,
     get_evidence_consumers,
 )
 from src.models.audit import AuditRecord
@@ -197,31 +195,3 @@ def test_find_recommendation_returns_none_for_empty_cycle(store: AuditStore) -> 
     assert find_recommendation_for_cycle(store, cid) is None
 
 
-# ============================================================
-# get_evaluations_for_cycle
-# ============================================================
-def test_evaluations_for_cycle_grouped_by_op_id(
-    store: AuditStore, populated_cycle: tuple[str, dict[str, int]],
-) -> None:
-    cid, ids = populated_cycle
-    rec_id = ids["recommendation"]
-
-    # Run two evaluations against the same recommendation
-    op1 = store.evaluate_recommendation(
-        target_cycle_id=cid, target_record_id=rec_id,
-        judge_call={"provider": "openai", "model": "gpt-4o", "prompt": "v1"},
-        score_one_result={"shape": {"passed": True}},
-    )
-    op2 = store.evaluate_recommendation(
-        target_cycle_id=cid, target_record_id=rec_id,
-        judge_call={"provider": "openai", "model": "gpt-4o", "prompt": "v2"},
-        score_one_result={"shape": {"passed": True}},
-    )
-
-    groups = get_evaluations_for_cycle(store, cid)
-    assert op1 in groups
-    assert op2 in groups
-    # Each op has the two-event chain (judge_call + evaluator_score)
-    assert len(groups[op1]) == 2
-    assert len(groups[op2]) == 2
-    assert {r.type for r in groups[op1]} == {"judge_call", "evaluator_score"}

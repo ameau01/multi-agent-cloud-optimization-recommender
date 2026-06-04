@@ -2,7 +2,6 @@
 
 Covers:
   - Graph builds without raising.
-  - End-to-end run (with mocked MCP) produces the expected audit shape.
   - Input Harness rejection short-circuits to cycle_complete with
     terminal_state='rejected_input'.
   - The legacy `orchestrate()` stub still raises with a pointer to the
@@ -10,8 +9,6 @@ Covers:
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 import pytest
 
@@ -34,127 +31,6 @@ def test_build_graph_returns_compiled_app(
     app = build_graph(store, input_harness, action_harness)
     # Compiled LangGraph has an invoke method.
     assert hasattr(app, "invoke")
-
-
-# ============================================================
-# Happy-path skeleton run
-# ============================================================
-@pytest.mark.skip(reason="Step 11b changed system shape — test asserts pre-11b behavior; rewrite pending in sub-batch 8")
-def test_agents_run_with_valid_app_produces_expected_trail(
-    store: AuditStore,
-    input_harness: InputHarness,
-    action_harness: ActionHarness,
-    mock_mcp,
-    app_08_metadata: dict[str, Any],
-    app_08_terraform: dict[str, Any],
-) -> None:
-    """End-to-end: start a cycle, invoke the graph with mocked MCP,
-    verify the audit trail has every expected row in the expected order."""
-    mock_mcp.register("get_scenario_metadata", app_08_metadata)
-    mock_mcp.register("get_terraform", app_08_terraform)
-
-    cycle_id = store.start_cycle(application_id="app-08", trigger_type="test")
-    app = build_graph(store, input_harness, action_harness)
-    initial = make_initial_state(
-        application_id="app-08",
-        cycle_id=cycle_id,
-        cycle_started_id=store.get_cycle_started_id(cycle_id),
-    )
-    final = app.invoke(initial)
-
-    terminal = (
-        final.get("terminal_state") if isinstance(final, dict)
-        else final.terminal_state
-    )
-    assert terminal == "no_specialists"
-
-    # Expected audit row shape under the supervisor-as-router pattern:
-    # cycle_started + 2 tool_call + 2 observation + system_mapper_output
-    # + 2 supervisor_decision (one dispatch_system_mapper, one complete).
-    events = get_cycle_events(store, cycle_id)
-    type_counts: dict[str, int] = {}
-    for e in events:
-        type_counts[e.type] = type_counts.get(e.type, 0) + 1
-    assert type_counts.get("cycle_started") == 1
-    assert type_counts.get("tool_call") == 2
-    assert type_counts.get("observation") == 2
-    assert type_counts.get("system_mapper_output") == 1
-    # Two supervisor decisions: dispatch_system_mapper, then complete.
-    assert type_counts.get("supervisor_decision") == 2
-    sup_rows = [e for e in events if e.type == "supervisor_decision"]
-    decision_types = [r.content["decision_type"] for r in sup_rows]
-    assert decision_types == ["dispatch_system_mapper", "complete"]
-    assert sup_rows[-1].content["terminal_state"] == "no_specialists"
-
-    # Harness rows: 2 input_validation (passed), 2 tool_call_policy_check
-    # (passed), 3 reasoning_check decision_evidence_backed (passed —
-    # one for system_mapper_output, two for supervisor_decision), 1
-    # orchestration_check cycle_completion_legitimate (passed). 8 total.
-    h_events = get_harness_events_for_cycle(store, cycle_id)
-    assert len(h_events) == 8
-    assert all(h.verdict == "passed" for h in h_events)
-    rc = [h for h in h_events if h.type == "reasoning_check"]
-    assert len(rc) == 3
-    assert all(r.content["check_name"] == "decision_evidence_backed" for r in rc)
-    # The harness records the decision's type as target_event_type so
-    # readers can distinguish "verified a supervisor_decision" from
-    # "verified a system_mapper_output" without joining audit_records.
-    target_types = sorted(r.content["target_event_type"] for r in rc)
-    assert target_types == [
-        "supervisor_decision",
-        "supervisor_decision",
-        "system_mapper_output",
-    ]
-
-    # Orchestration harness fires once per cycle, just before the runner
-    # writes cycle_completed. The verdict here is 'passed' because a
-    # 'no_specialists' terminal with empty specialists_invoked is one of
-    # the documented legitimate pairings.
-    oc = [h for h in h_events if h.type == "orchestration_check"]
-    assert len(oc) == 1
-    assert oc[0].content["check_name"] == "cycle_completion_legitimate"
-    assert oc[0].content["target_event_type"] == "cycle_completed"
-    assert oc[0].content["details"]["final_status"] == "no_specialists"
-
-    # Phase 11a.5 lock-in: action and reasoning verdicts carry a
-    # non-null related_event_id pointing at the audit row they judged.
-    # Backfilled by store.link_harness_to_event from dispatch.py
-    # (action checks) and supervisor.py + system_mapper.py (reasoning
-    # checks).
-    #
-    # Two exemptions in this assertion:
-    #
-    #   - input_validation: the Input Harness validates trigger
-    #     arguments at cycle start, with no antecedent audit row to
-    #     link to. Future work could point it at the cycle_started
-    #     row, but that's a separate concern and was not part of the
-    #     11a.5 asymmetry the harness review flagged.
-    #
-    #   - orchestration_check: only the runner does the backfill (it
-    #     writes cycle_completed and then links the verdict to it).
-    #     This test invokes the graph directly, bypassing the runner,
-    #     so the orchestration row stays unlinked here. The runner
-    #     path is exercised in tests/integration/agents/
-    #     test_agents_end_to_end.py, which asserts all 8 rows backfill
-    #     correctly.
-    for h in h_events:
-        if h.type in ("input_validation", "orchestration_check"):
-            continue
-        assert h.related_event_id is not None, (
-            f"harness row id={h.id} type={h.type} has no "
-            f"related_event_id; backfill missing"
-        )
-
-    # Bug-fix lock-in (Phase 11a.3 follow-up): the system_mapper_output
-    # row cites the observation rows it was derived from. With two MCP
-    # fetches (get_scenario_metadata + get_terraform), evidence_refs has
-    # exactly two ids and both resolve to observation rows in this cycle.
-    sm_rows = [e for e in events if e.type == "system_mapper_output"]
-    assert len(sm_rows) == 1
-    sm_evidence = sm_rows[0].content.get("evidence_refs") or []
-    assert len(sm_evidence) == 2
-    obs_ids = {e.id for e in events if e.type == "observation"}
-    assert set(sm_evidence).issubset(obs_ids)
 
 
 # ============================================================

@@ -34,8 +34,8 @@ from typing import Any
 
 from sqlalchemy import select, text
 
-from ..models.audit import AuditRecord, HarnessRecord, InternalOpRecord
-from .schema import audit_records, harness_trail, operations
+from ..models.audit import AuditRecord, HarnessRecord
+from .schema import audit_records, harness_trail
 from .store import AuditStore
 
 
@@ -127,36 +127,6 @@ def get_evidence_consumers(
     with store.engine.connect() as conn:
         rows = conn.execute(sql, {"evidence_id": evidence_record_id}).mappings().all()
     return [_row_to_audit_record(r) for r in rows]
-
-
-# ============================================================
-# Internal ops reads
-# ============================================================
-def get_evaluations_for_cycle(
-    store: AuditStore,
-    cycle_id: str,
-) -> dict[str, list[InternalOpRecord]]:
-    """Return every operations record for a cycle's evaluations,
-    grouped by op_id. Each value is the ordered chain of events for
-    one evaluation invocation (typically judge_call then evaluator_score).
-
-    Multiple evaluations against the same recommendation produce
-    multiple op_ids; each is its own list.
-    """
-    with store.engine.connect() as conn:
-        rows = conn.execute(
-            select(operations)
-            .where(
-                (operations.c.target_cycle_id == cycle_id)
-                & (operations.c.op_type == "evaluation")
-            )
-            .order_by(operations.c.op_id, operations.c.id)
-        ).mappings().all()
-    out: dict[str, list[InternalOpRecord]] = {}
-    for r in rows:
-        rec = _row_to_op_record(r)
-        out.setdefault(rec.op_id, []).append(rec)
-    return out
 
 
 def get_record_by_id(store: AuditStore, record_id: int) -> AuditRecord | None:
@@ -281,20 +251,6 @@ def _row_to_audit_record(row) -> AuditRecord:
         category=row["category"],
         type=row["type"],
         agent=row["agent"],
-        content=_content(row["content"]),
-        timestamp=row["timestamp"],
-    )
-
-
-def _row_to_op_record(row) -> InternalOpRecord:
-    return InternalOpRecord(
-        id=row["id"],
-        op_id=row["op_id"],
-        op_type=row["op_type"],
-        target_cycle_id=row["target_cycle_id"],
-        target_record_id=row["target_record_id"],
-        parent_id=row["parent_id"],
-        type=row["type"],
         content=_content(row["content"]),
         timestamp=row["timestamp"],
     )

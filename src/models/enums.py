@@ -259,31 +259,6 @@ SupervisorDecisionType = Literal[
 
 
 # ============================================================
-# OpType — operations.op_type values (the post-hoc operations)
-# ============================================================
-# Distinct from RecordType because operations is a separate table
-# tracking operations performed AFTER a cycle ends (eval, render).
-OpType = Literal[
-    "evaluation",
-    "report_render",
-    "evidence_render",
-]
-
-
-# ============================================================
-# OpSubType — the per-event types within an operations record chain
-# ============================================================
-OpSubType = Literal[
-    # evaluation chain
-    "judge_call",                 # the prompt sent to the LLM judge
-    "evaluator_score",            # synthesized ScoreOneResult
-    # render chain
-    "render_started",
-    "render_completed",
-]
-
-
-# ============================================================
 # Runtime universes derived from the Literals
 # ============================================================
 # The Scorer's rules.py validator consumes frozenset universes.
@@ -296,7 +271,6 @@ ACTION_CATEGORY_VALUES: frozenset[str] = frozenset(get_args(ActionCategory))
 AGENT_NAMES: frozenset[str] = frozenset(get_args(AgentName))
 RECORD_CATEGORIES: frozenset[str] = frozenset(get_args(RecordCategory))
 RECORD_TYPES: frozenset[str] = frozenset(get_args(RecordType))
-OP_TYPES: frozenset[str] = frozenset(get_args(OpType))
 HARNESS_NAMES: frozenset[str] = frozenset(get_args(HarnessName))
 VERDICTS: frozenset[str] = frozenset(get_args(Verdict))
 HARNESS_RECORD_TYPES: frozenset[str] = frozenset(get_args(HarnessRecordType))

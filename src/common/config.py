@@ -78,12 +78,10 @@ LANGSMITH_ENDPOINT_ENV: str = "LANGSMITH_ENDPOINT"
 # ============================================================
 AUDIT_TABLE_AUDIT_RECORDS: str = "audit_records"
 AUDIT_TABLE_HARNESS_TRAIL: str = "harness_trail"
-AUDIT_TABLE_OPERATIONS: str = "operations"
 
 ALL_AUDIT_TABLES: tuple[str, ...] = (
     AUDIT_TABLE_AUDIT_RECORDS,
     AUDIT_TABLE_HARNESS_TRAIL,
-    AUDIT_TABLE_OPERATIONS,
 )
 
 

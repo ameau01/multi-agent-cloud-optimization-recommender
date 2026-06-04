@@ -1,6 +1,6 @@
 """Mock-replay graph factory — drives the cycle from a recorded fixture.
 
-Reads a cycle-export fixture produced by `scripts/export_cycle_fixture.py`
+Reads a cycle-export fixture produced by `tests/export_cycle_fixture.py`
 and builds a LangGraph application that re-executes the same graph
 topology with the LLM-invoking nodes replaced by "replay nodes" that
 write the recorded outputs directly to the audit DB. The result is a
@@ -38,7 +38,7 @@ Entry point:
 
 Use from LangGraph dev:
 
-  1. Run `scripts/export_cycle_fixture.py` to produce a fixture.
+  1. Run `tests/export_cycle_fixture.py` to produce a fixture.
   2. `REPLAY_FIXTURE=tests/integration/agents/fixtures/cycle_app08.json langgraph dev`
   3. In the LangGraph dev UI, select graph `agent_replay`.
   4. Invoke with `{"application_id": "app-08", "cycle_id": "replay-test"}` —
@@ -91,7 +91,7 @@ def _load_fixture(path: str | Path) -> dict[str, Any]:
     if not p.exists():
         raise FileNotFoundError(
             f"Replay fixture not found: {p}. Generate one with "
-            f"`python scripts/export_cycle_fixture.py --cycle <id> --out <path>`."
+            f"`python tests/export_cycle_fixture.py --cycle <id> --out <path>`."
         )
     return json.loads(p.read_text())
 

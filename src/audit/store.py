@@ -9,7 +9,6 @@ Responsibilities:
   - Idempotently initialize the schema (CREATE TABLE IF NOT EXISTS).
   - Provide append-only insertion helpers; no update_* methods exist.
   - Encapsulate the cycle_id uniqueness invariant via start_cycle().
-  - Provide the evaluator integration via evaluate_recommendation().
 
 See `docs/audit-trail.md` for the full design.
 """
@@ -19,7 +18,6 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import create_engine, event, insert, select
 from sqlalchemy.engine import Engine
@@ -27,8 +25,8 @@ from sqlalchemy.pool import StaticPool
 
 from ..common.config import DEFAULT_AUDIT_DB_PATH, audit_db_path  # noqa: F401
 from ..common.init import ensure_env_loaded
-from ..models.audit import AuditRecord, HarnessRecord, InternalOpRecord
-from .schema import audit_records, harness_trail, operations, metadata
+from ..models.audit import AuditRecord, HarnessRecord
+from .schema import audit_records, harness_trail, metadata
 
 
 # Sentinel for in-memory operation. Callers (typically tests) pass this
@@ -87,19 +85,6 @@ def _row_id(result) -> int:
             "autoincrement INTEGER PRIMARY KEY)"
         )
     return int(pk[0])
-
-
-def _new_op_id(op_type: str) -> str:
-    """Generate an op_id for operations. Same shape as cycle_id but
-    prefixed with the op_type for at-a-glance recognition."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    suffix = secrets.token_hex(4)
-    prefix = {
-        "evaluation": "eval",
-        "report_render": "render",
-        "evidence_render": "render",
-    }.get(op_type, "op")
-    return f"{prefix}_{ts}_{suffix}"
 
 
 # ============================================================
@@ -332,80 +317,6 @@ class AuditStore:
                 )
             )
             return _row_id(result)
-
-    # --------------------------------------------------------
-    # Internal ops (operations table)
-    # --------------------------------------------------------
-    def add_op_event(self, record: InternalOpRecord) -> int:
-        """Append one event to operations. Returns the inserted row id.
-
-        Used by callers that build their own op chains. For evaluation
-        ops, prefer the higher-level evaluate_recommendation helper.
-        """
-        with self._engine.begin() as conn:
-            result = conn.execute(
-                insert(operations).values(
-                    op_id=record.op_id,
-                    op_type=record.op_type,
-                    target_cycle_id=record.target_cycle_id,
-                    target_record_id=record.target_record_id,
-                    parent_id=record.parent_id,
-                    type=record.type,
-                    content=record.content,
-                )
-            )
-            return _row_id(result)
-
-    def evaluate_recommendation(
-        self,
-        target_cycle_id: str,
-        target_record_id: int,
-        judge_call: dict[str, Any],
-        score_one_result: dict[str, Any],
-    ) -> str:
-        """Record one evaluation run against a cycle's recommendation.
-
-        Emits the two-event chain: judge_call (evidence within the op)
-        followed by evaluator_score (decision within the op, parent_id
-        pointing to the judge_call). Returns the new op_id.
-
-        Args:
-            target_cycle_id: The cycle whose recommendation is being scored.
-            target_record_id: The recommendation row's id (so backward
-                walks can resolve from the score back to the artifact).
-            judge_call: dict matching JudgeCallContent shape.
-            score_one_result: dict matching EvaluatorScoreContent.score_one_result
-                shape (typically a ScoreOneResult model_dump()).
-        """
-        op_id = _new_op_id("evaluation")
-        with self._engine.begin() as conn:
-            jc_result = conn.execute(
-                insert(operations).values(
-                    op_id=op_id,
-                    op_type="evaluation",
-                    target_cycle_id=target_cycle_id,
-                    target_record_id=target_record_id,
-                    parent_id=None,
-                    type="judge_call",
-                    content=judge_call,
-                )
-            )
-            judge_call_id = _row_id(jc_result)
-            conn.execute(
-                insert(operations).values(
-                    op_id=op_id,
-                    op_type="evaluation",
-                    target_cycle_id=target_cycle_id,
-                    target_record_id=target_record_id,
-                    parent_id=judge_call_id,
-                    type="evaluator_score",
-                    content={
-                        "score_one_result": score_one_result,
-                        "judge_call_id": judge_call_id,
-                    },
-                )
-            )
-        return op_id
 
     # --------------------------------------------------------
     # Engine access (for queries.py and composer.py)

@@ -5,7 +5,6 @@ Covers:
   - Append-only discipline (no update_/delete_ methods exist)
   - FK enforcement (bogus parent_id rejected under PRAGMA foreign_keys=ON)
   - Cycle_id uniqueness (partial unique index rejects duplicate cycle_started)
-  - Internal ops (add_op_event + evaluate_recommendation)
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from src.audit import AuditStore
-from src.models.audit import AuditRecord, InternalOpRecord
+from src.models.audit import AuditRecord
 
 
 # ============================================================
@@ -116,43 +115,3 @@ def test_duplicate_cycle_completed_is_rejected(store: AuditStore) -> None:
         store.complete_cycle(cid)
 
 
-# ============================================================
-# Internal ops
-# ============================================================
-def test_add_op_event_writes_to_internal_ops(store: AuditStore) -> None:
-    cid = store.start_cycle(application_id="app-08")
-    op_rec = InternalOpRecord(
-        op_id="eval_20260601_120000_aaaaaaaa",
-        op_type="evaluation",
-        target_cycle_id=cid,
-        target_record_id=1,
-        parent_id=None,
-        type="judge_call",
-        content={"provider": "openai", "model": "gpt-4o", "prompt": "..."},
-    )
-    rid = store.add_op_event(op_rec)
-    assert rid > 0
-    with store.engine.connect() as conn:
-        n = conn.execute(text("SELECT COUNT(*) FROM operations")).scalar()
-    assert n == 1
-
-
-def test_evaluate_recommendation_produces_two_event_chain(store: AuditStore) -> None:
-    cid = store.start_cycle(application_id="app-08")
-    op_id = store.evaluate_recommendation(
-        target_cycle_id=cid,
-        target_record_id=1,
-        judge_call={"provider": "openai", "model": "gpt-4o", "prompt": "..."},
-        score_one_result={"shape": {"passed": True}, "correctness": {"passed": True}},
-    )
-    assert op_id.startswith("eval_")
-    with store.engine.connect() as conn:
-        rows = conn.execute(
-            text("SELECT type, parent_id FROM operations WHERE op_id = :o ORDER BY id"),
-            {"o": op_id},
-        ).fetchall()
-    types = [r[0] for r in rows]
-    parent_ids = [r[1] for r in rows]
-    assert types == ["judge_call", "evaluator_score"]
-    assert parent_ids[0] is None        # judge_call has no parent in the op
-    assert parent_ids[1] is not None    # evaluator_score points to judge_call

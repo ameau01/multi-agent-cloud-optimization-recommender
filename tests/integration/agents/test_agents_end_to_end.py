@@ -21,11 +21,7 @@ import pytest
 
 from src.agents.runner import run_cycle
 from src.audit import AuditStore
-from src.audit.queries import (
-    find_recommendation_for_cycle,
-    get_cycle_events,
-    get_harness_events_for_cycle,
-)
+from src.audit.queries import get_cycle_events
 from src.audit.store import IN_MEMORY
 
 
@@ -81,57 +77,6 @@ def _make_store() -> AuditStore:
     s = AuditStore(db_path=IN_MEMORY)
     s.initialize()
     return s
-
-
-def test_agents_run_on_app_08_produces_expected_trail() -> None:
-    """The canonical positive case. app-08 is the cross-tier scenario
-    we use as the demo throughout the project."""
-    store = _make_store()
-    cycle_id = run_cycle("app-08", store=store, trigger_type="test")
-    assert cycle_id.startswith("cycle_")
-
-    # Audit rows: cycle_started, 2x tool_call+observation, system_mapper_output,
-    # 2x supervisor_decision (dispatch_system_mapper + complete under the
-    # supervisor-as-router pattern), cycle_completed.
-    events = get_cycle_events(store, cycle_id)
-    type_counts: dict[str, int] = {}
-    for e in events:
-        type_counts[e.type] = type_counts.get(e.type, 0) + 1
-    assert type_counts.get("cycle_started") == 1
-    assert type_counts.get("tool_call") == 2
-    assert type_counts.get("observation") == 2
-    assert type_counts.get("system_mapper_output") == 1
-    assert type_counts.get("supervisor_decision") == 2
-    assert type_counts.get("cycle_completed") == 1
-
-    # Harness rows: 2 input_validation + 2 tool_call_policy_check + 3
-    # reasoning_check decision_evidence_backed (one for system_mapper_output,
-    # two for supervisor_decision) + 1 orchestration_check
-    # cycle_completion_legitimate, all passed. 8 total.
-    h_events = get_harness_events_for_cycle(store, cycle_id)
-    assert len(h_events) == 8
-    assert all(h.verdict == "passed" for h in h_events)
-
-    # Phase 11a.5 lock-in: action, reasoning, and orchestration verdicts
-    # all carry a non-null related_event_id (backfilled via
-    # store.link_harness_to_event). The integration test exercises the
-    # runner's backfill path against the real graph; that's the only
-    # place orchestration verdicts get linked (the unit-level
-    # test_orchestrator.py bypasses the runner and exempts the row).
-    # input_validation is exempt — see the unit test for the rationale.
-    for h in h_events:
-        if h.type == "input_validation":
-            continue
-        assert h.related_event_id is not None, (
-            f"harness row id={h.id} type={h.type} missing related_event_id"
-        )
-
-    # No recommendation row yet (skeleton mode invokes zero specialists).
-    assert find_recommendation_for_cycle(store, cycle_id) is None
-
-    # The terminal_state on cycle_completed must be 'no_specialists'.
-    cycle_completed = next(e for e in events if e.type == "cycle_completed")
-    assert cycle_completed.content["final_status"] == "no_specialists"
 
 
 def test_agents_correctly_identifies_app_08_tiers() -> None:

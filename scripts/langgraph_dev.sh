@@ -12,7 +12,7 @@
 #
 #   REPLAY_FIXTURE (env)
 #     The `agent_replay` graph reads its canned LLM / MCP responses
-#     from a JSON fixture exported via scripts/export_cycle_fixture.py.
+#     from a JSON fixture exported via tests/export_cycle_fixture.py.
 #     The default points at the app-08 fixture; override on the
 #     command line for any other cycle:
 #       REPLAY_FIXTURE=path/to/other.json bash scripts/langgraph_dev.sh
@@ -35,7 +35,7 @@ if [[ ! -f "$REPLAY_FIXTURE" ]]; then
   echo "error: REPLAY_FIXTURE not found at $REPLAY_FIXTURE" >&2
   echo "" >&2
   echo "Generate one with:" >&2
-  echo "  python scripts/export_cycle_fixture.py --cycle <cycle_id> --out $REPLAY_FIXTURE" >&2
+  echo "  python tests/export_cycle_fixture.py --cycle <cycle_id> --out $REPLAY_FIXTURE" >&2
   exit 1
 fi
 

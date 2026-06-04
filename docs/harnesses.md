@@ -247,7 +247,7 @@ Every record carries a stable identifier, the agent or harness that produced it,
 
 **Storage.** SQLite for the portfolio implementation, with the schema designed so Postgres is a drop-in upgrade for production.
 
-The audit trail spans three append-only tables in one SQLite file: `audit_records` for the agent's reasoning, `harness_trail` for what the harnesses verified or rejected, and `operations` for post-hoc operations like eval scoring. The split keeps each table focused on one audience; full schema lives in [`audit-trail.md`](audit-trail.md).
+The audit trail spans two append-only tables in one SQLite file: `audit_records` for the agent's reasoning and `harness_trail` for what the harnesses verified or rejected. The split keeps each table focused on one audience; full schema lives in [`audit-trail.md`](audit-trail.md).
 
 ### Why this is its own harness
 

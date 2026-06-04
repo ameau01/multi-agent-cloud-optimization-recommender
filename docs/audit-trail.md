@@ -8,7 +8,7 @@ This doc covers what the audit trail captures, how it supports replay, why the s
 
 Every significant event in a review cycle is a record. The trail is rich enough that a reviewer reading it should be able to reconstruct exactly what the system did and why.
 
-These records split across three tables. The reasoning events (Supervisor decisions, ReAct steps, specialist findings, evaluator records, recommendation, HITL decisions) land in `audit_records` — the agent's story for the human reviewer. The enforcement events (Input Harness validations, Action Harness policy checks and gate verdicts, Reasoning Harness checks) land in `harness_trail`. Post-hoc scoring runs against a completed cycle's recommendation land in `operations`. See "Storage shape" below for the per-table schemas.
+These records split across two tables. The reasoning events (Supervisor decisions, ReAct steps, specialist findings, evaluator records, recommendation, HITL decisions) land in `audit_records` — the agent's story for the human reviewer. The enforcement events (Input Harness validations, Action Harness policy checks and gate verdicts, Reasoning Harness checks, Orchestration Harness cycle-level checks) land in `harness_trail`. See "Storage shape" below for the per-table schemas.
 
 **Trigger and ingest records** When a review was requested, by what trigger, against which application, with what scenario hash.
 
@@ -95,13 +95,12 @@ A vector database **would** be appropriate for a different concern, semantic ret
 
 ## Storage shape
 
-Three append-only SQLite tables in a single file. Each has a distinct audience:
+Two append-only SQLite tables in a single file. Each has a distinct audience:
 
 - `audit_records` — the agent's reasoning story, for the human reviewer
 - `harness_trail` — what the harnesses verified or rejected, for harness reporting
-- `operations` — post-hoc operations on completed cycles, for developers debugging
 
-Splitting them keeps each table focused on one story for one audience. Mixing them would dilute the reasoning trail with enforcement noise and operational logs.
+Splitting them keeps each table focused on one story for one audience. Mixing them would dilute the reasoning trail with enforcement noise.
 
 ### `audit_records` — the reasoning trail
 
@@ -174,34 +173,9 @@ harness_trail
 
 The architectural property worth seeing: when the Action Harness allows a tool call, the resulting tool call and observation land in `audit_records` (the substance). The harness's policy-check verdict lands in `harness_trail` (the enforcement decision). When the Action Harness *rejects* a tool call, there is no `audit_records` entry — the rejection lives only in `harness_trail`. The audit trail shows what the agent accomplished; the harness trail shows what was prevented.
 
-### `operations` — operations on a completed cycle
-
-Third table, third audience. Where `audit_records` is the deliverable and `harness_trail` is the enforcement record, `operations` is for developers debugging the system — eval runs, report renders, and similar post-hoc operations land here so the main trail stays focused on the reasoning story. Same DB file; same append-only discipline.
-
-```text
-operations
-  id                INTEGER PRIMARY KEY AUTOINCREMENT
-  op_id             TEXT NOT NULL        -- e.g. "eval_20260601_142003_a3f8b1c0"
-  op_type           TEXT NOT NULL        -- 'evaluation' | 'report_render' | 'evidence_render'
-  target_cycle_id   TEXT NOT NULL        -- the audit_records cycle being operated on
-  target_record_id  INTEGER              -- the specific record (typically the recommendation)
-  parent_id         INTEGER              -- self-FK for multi-step ops
-  type              TEXT NOT NULL        -- sub-type within the op
-  content           JSON NOT NULL
-  timestamp         DATETIME DEFAULT CURRENT_TIMESTAMP
-  FOREIGN KEY (parent_id) REFERENCES operations(id)
-```
-
-Each evaluation produces a small chain:
-
-- `judge_call` — the prompt sent to the LLM judge (evidence within the op)
-- `evaluator_score` — the synthesized ScoreOneResult with all five layer verdicts (decision within the op)
-
-Multiple evaluations against the same recommendation are supported (prompt tuning, judge non-determinism). Each invocation gets its own `op_id`; reports filter by `target_cycle_id` and group by `op_id`. Cross-table references use plain TEXT — `target_cycle_id` is not a database-level FK, both for SQLite simplicity and because the writer (`AuditStore`) controls both tables.
-
 ### JSON content payloads
 
-All three tables store payloads in a `content JSON` column. The Pydantic content models in `src/models/audit.py` define the per-type shape (one class per record `type`). Pydantic validates the shape at write time; at read time, queries either inspect raw JSON via SQLite's `json_extract`/`json_each` or hydrate back into the typed model for application-level use. This is pragmatic for SQLite and migrates cleanly to Postgres `jsonb` or fully-typed columns later.
+Both tables store payloads in a `content JSON` column. The Pydantic content models in `src/models/audit.py` define the per-type shape (one class per record `type`). Pydantic validates the shape at write time; at read time, queries either inspect raw JSON via SQLite's `json_extract`/`json_each` or hydrate back into the typed model for application-level use. This is pragmatic for SQLite and migrates cleanly to Postgres `jsonb` or fully-typed columns later.
 
 ### Storage engine and file location
 

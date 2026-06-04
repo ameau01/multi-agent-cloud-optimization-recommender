@@ -1,17 +1,15 @@
 """Pydantic models for the audit trail.
 
-Three top-level record types map 1:1 to the three SQLite tables documented
+Two top-level record types map 1:1 to the two SQLite tables documented
 in `docs/audit-trail.md`:
 
   - `AuditRecord`     -> audit_records table (the reasoning trail)
   - `HarnessRecord`   -> harness_trail table (enforcement events)
-  - `InternalOpRecord` -> operations table (eval, render — internal)
 
 Each record's `content` field is a typed Pydantic sub-model whose shape
-is selected by `type`. The content classes are defined below in four
-sections (decision-category content, evidence-category content) for
-audit_records, a section for operations content, and a fourth section
-for harness_trail content.
+is selected by `type`. The content classes are defined below in three
+sections: decision-category content for audit_records, evidence-category
+content for audit_records, and harness_trail content.
 
 The store layer accepts records as raw dicts at the wire (so producers
 can use simple JSON-able payloads) and validates them against these
@@ -19,7 +17,7 @@ models on insert. Read paths return typed instances; queries that don't
 care about content can keep it opaque.
 
 See `docs/audit-trail.md` for the column-level schema and the rationale
-for the three-table split.
+for the two-table split.
 """
 
 from __future__ import annotations
@@ -34,8 +32,6 @@ from .enums import (
     FailureStage,
     HarnessName,
     HarnessRecordType,
-    OpSubType,
-    OpType,
     RecordCategory,
     RecordType,
     SupervisorDecisionType,
@@ -249,46 +245,7 @@ class InfrastructureFactContent(BaseModel):
 
 
 # ============================================================
-# Section 3 — Operations content models
-# ============================================================
-# These describe content payloads for the `operations` table (renamed
-# from `internal_ops` in Phase 11a.2). Decoupled from audit_records —
-# different audience, different lifecycle.
-
-
-class JudgeCallContent(BaseModel):
-    """content for op_type='evaluation', type='judge_call'. The prompt
-    sent to the LLM judge — captured so a prompt-tuner can inspect the
-    exact input that produced a given score."""
-    provider: str                       # "anthropic" | "openai"
-    model: str
-    prompt: str
-    model_config = _LenientConfig
-
-
-class EvaluatorScoreContent(BaseModel):
-    """content for op_type='evaluation', type='evaluator_score'. The
-    synthesized ScoreOneResult with all five layer verdicts.
-
-    Stored as dict[str, Any] (the model_dump() of ScoreOneResult) rather
-    than the typed class to keep this file decoupled from scoring.py
-    schema changes."""
-    score_one_result: dict[str, Any]
-    judge_call_id: int | None = None    # parent_id within the op chain
-    model_config = _LenientConfig
-
-
-class ReportRenderContent(BaseModel):
-    """content for op_type='report_render' or 'evidence_render'."""
-    output_path: str
-    byte_count: int | None = None
-    success: bool = True
-    error_message: str | None = None
-    model_config = _LenientConfig
-
-
-# ============================================================
-# Section 4 — Harness_trail content models
+# Section 3 — Harness_trail content models
 # ============================================================
 # Harness events split into four categories distinguished by the
 # `type` column. Finer-grained sub-checks (which input check failed,
@@ -438,23 +395,3 @@ class HarnessRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class InternalOpRecord(BaseModel):
-    """One row in the `operations` table (renamed from `internal_ops`
-    in Phase 11a.2). A post-hoc operation against a completed cycle's
-    recommendation (eval run, report render).
-
-    The class name stays `InternalOpRecord` for now — the *table* was
-    renamed for user-visible clarity, but the class name change has a
-    larger blast radius (imports across modules) and isn't user-visible.
-    """
-    id: int | None = None
-    op_id: str                          # e.g. "eval_20260601_142003_a3f8b1c0"
-    op_type: OpType
-    target_cycle_id: str                # which cycle this op acted on
-    target_record_id: int | None = None  # specific record (usually the recommendation)
-    parent_id: int | None = None        # self-FK for multi-step ops
-    type: OpSubType
-    content: dict[str, Any]             # one of the *Content classes above
-    timestamp: datetime | None = None
-
-    model_config = ConfigDict(extra="forbid")

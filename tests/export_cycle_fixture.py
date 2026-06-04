@@ -2,9 +2,9 @@
 """Export every row of a single audit cycle to a JSON fixture.
 
 Reads the audit DB at .audit_db/audit.db (or AUDIT_DB_PATH env if set),
-selects every row tagged with the given cycle_id across the three
-tables (audit_records, harness_trail, operations), and writes them
-as one JSON document to the path passed via --out.
+selects every row tagged with the given cycle_id across the two
+tables (audit_records, harness_trail), and writes them as one JSON
+document to the path passed via --out.
 
 The fixture is the ground-truth shape a future replay test will
 assert against. It captures the cycle's structured outputs — the
@@ -15,7 +15,7 @@ expected state after a re-run that mocks LLM calls to return the
 same structured outputs the agents produced here.
 
 Usage:
-    python scripts/export_cycle_fixture.py \\
+    python tests/export_cycle_fixture.py \\
         --cycle cycle_20260604_090632_d4333b8a \\
         --out tests/integration/agents/fixtures/cycle_app08.json
 
@@ -25,11 +25,9 @@ Schema of the output document:
       "exported_at": "ISO timestamp",
       "audit_records": [ {row dict}, ... ],   # ordered by id ASC
       "harness_trail": [ {row dict}, ... ],   # ordered by id ASC
-      "operations":    [ {row dict}, ... ],   # ordered by id ASC
       "row_counts":    {
           "audit_records": N,
-          "harness_trail": N,
-          "operations":    N
+          "harness_trail": N
       }
     }
 
@@ -104,16 +102,10 @@ def export_cycle(
             "SELECT * FROM harness_trail WHERE cycle_id = ? ORDER BY id ASC",
             (cycle_id,),
         ).fetchall()
-        # operations keys on target_cycle_id rather than cycle_id (post-hoc
-        # ops over a completed cycle).
-        ops = conn.execute(
-            "SELECT * FROM operations WHERE target_cycle_id = ? ORDER BY id ASC",
-            (cycle_id,),
-        ).fetchall()
     finally:
         conn.close()
 
-    if not ar and not ht and not ops:
+    if not ar and not ht:
         sys.exit(f"no rows found for cycle_id={cycle_id!r}; nothing to export")
 
     payload = {
@@ -122,11 +114,9 @@ def export_cycle(
         "source_db": str(Path(db_path).resolve()),
         "audit_records": _rows_to_dicts(ar),
         "harness_trail": _rows_to_dicts(ht),
-        "operations":    _rows_to_dicts(ops),
         "row_counts": {
             "audit_records": len(ar),
             "harness_trail": len(ht),
-            "operations":    len(ops),
         },
     }
 
@@ -165,7 +155,6 @@ def main() -> None:
     print(f"Exported cycle {args.cycle!r} to {args.out}")
     print(f"  audit_records: {counts['audit_records']} rows")
     print(f"  harness_trail: {counts['harness_trail']} rows")
-    print(f"  operations:    {counts['operations']} rows")
 
 
 if __name__ == "__main__":

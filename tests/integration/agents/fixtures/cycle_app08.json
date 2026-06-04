@@ -5900,10 +5900,8 @@
       "timestamp": "2026-06-04 09:12:03"
     }
   ],
-  "operations": [],
   "row_counts": {
     "audit_records": 64,
-    "harness_trail": 44,
-    "operations": 0
+    "harness_trail": 44
   }
 }

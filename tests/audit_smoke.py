@@ -28,7 +28,6 @@ from src.audit.queries import (  # noqa: E402
     find_recommendation_for_cycle,
     get_cycle_events,
     get_decision_chain,
-    get_evaluations_for_cycle,
     get_evidence_consumers,
 )
 from src.models.audit import AuditRecord  # noqa: E402
@@ -123,15 +122,6 @@ def main() -> int:
                               recommendation_record_id=rec_id)
         print("  Cycle complete; 9 records written.")
 
-        # ---- Record one evaluation ----
-        op_id = store.evaluate_recommendation(
-            target_cycle_id=cid, target_record_id=rec_id,
-            judge_call={"provider": "openai", "model": "gpt-4o", "prompt": "Score this."},
-            score_one_result={"shape": {"passed": True}, "correctness": {"passed": True},
-                              "floor": {"passed": True}, "mid": "skipped", "rich": "skipped"},
-        )
-        print(f"  Evaluation recorded: op_id={op_id}")
-
         # ---- Query paths ----
         events = get_cycle_events(store, cid)
         print(f"  get_cycle_events: {len(events)} records")
@@ -146,9 +136,6 @@ def main() -> int:
 
         rec = find_recommendation_for_cycle(store, cid)
         print(f"  find_recommendation_for_cycle: id={rec.id if rec else None}")
-
-        evals = get_evaluations_for_cycle(store, cid)
-        print(f"  get_evaluations_for_cycle: {len(evals)} op(s)")
 
         # ---- Composer + renderer ----
         composite = compose_from_cycle(store, cid)

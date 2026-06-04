@@ -1,29 +1,21 @@
 """SQLAlchemy Core table definitions for the audit trail.
 
-Three tables, all append-only:
+Two tables, both append-only:
 
   - `audit_records` — the reasoning trail (one row per event in a
     review cycle). Polymorphic via the `type` column; categorized for
     the decision-vs-evidence reports via `category`.
   - `harness_trail` — enforcement events (Input Harness validations,
     Action Harness policy checks and gate verdicts, Reasoning Harness
-    pre-produce checks). When a tool call is rejected, this is the only
-    table that records it — its absence from audit_records is itself
-    an audit signal.
-  - `operations` — post-hoc operations on a completed cycle's
-    recommendation (eval runs, report renders). Separate audience
-    (developers debugging the system) from the main audit trail
-    (human reviewers). Was named `internal_ops` until Phase 11a.2.
+    pre-produce checks, Orchestration Harness cycle-level checks). When
+    a tool call is rejected, this is the only table that records it —
+    its absence from audit_records is itself an audit signal.
 
-Column conventions (used by all three tables):
+Column conventions (used by both tables):
 
-  - `cycle_id`  : every row is tied to one review cycle. (Was
-                   `review_cycle_id` until Phase 11a.2.) The
-                   `operations` table uses `target_cycle_id` for
-                   the cycle being operated on, since "this op
-                   targets that cycle" is the relationship.
+  - `cycle_id`  : every row is tied to one review cycle.
   - `timestamp` : when the row was written. SQLite fills it via
-                   server-default. (Was `emitted_at` until 11a.2.)
+                   server-default.
 
 See `docs/audit-trail.md` for the column-level schema and rationale.
 
@@ -130,32 +122,6 @@ harness_trail = Table(
 
 
 # ============================================================
-# operations — post-hoc operations on completed cycles
-# ============================================================
-# Renamed from `internal_ops` in Phase 11a.2. The Python identifier
-# below (`operations`) matches the SQL table name; older code that
-# imported `internal_ops` needs to update its import.
-operations = Table(
-    "operations",
-    metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("op_id", String, nullable=False),
-    Column("op_type", String, nullable=False),
-    Column("target_cycle_id", String, nullable=False),
-    Column("target_record_id", Integer, nullable=True),
-    Column("parent_id", Integer, ForeignKey("operations.id"), nullable=True),
-    Column("type", String, nullable=False),
-    Column("content", JSON, nullable=False),
-    Column(
-        "timestamp",
-        DateTime,
-        nullable=False,
-        server_default=func.current_timestamp(),
-    ),
-)
-
-
-# ============================================================
 # Indexes
 # ============================================================
 # Partial unique indexes — these are SQLite-specific syntax (the
@@ -190,14 +156,6 @@ Index(
     "category_type",
     audit_records.c.category,
     audit_records.c.type,
-)
-
-# operations: per-target-cycle lookup (most common query — "show me
-# every eval against this recommendation").
-Index(
-    "ops_by_target_cycle",
-    operations.c.target_cycle_id,
-    operations.c.op_id,
 )
 
 # harness_trail: per-cycle scan covers "show me everything the harnesses

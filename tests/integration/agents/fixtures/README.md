@@ -2,9 +2,8 @@
 
 This folder holds JSON snapshots of completed agent cycles, exported
 from the audit DB. Each fixture is the **single source of truth** for
-what one historical cycle looked like — every audit_records row, every
-harness_trail verdict, every operations row, in the order they
-landed.
+what one historical cycle looked like — every audit_records row and
+every harness_trail verdict, in the order they landed.
 
 Sole purpose: drive a **mock LangGraph run** — a future re-invocation
 of `build_graph` where the MCP adapter and LLM clients are
@@ -14,11 +13,11 @@ calls.
 
 ## How to produce a fixture
 
-The exporter is `scripts/export_cycle_fixture.py`. From the project
+The exporter is `tests/export_cycle_fixture.py`. From the project
 root with a populated audit DB:
 
 ```bash
-python scripts/export_cycle_fixture.py \
+python tests/export_cycle_fixture.py \
     --cycle cycle_20260604_090632_d4333b8a \
     --out tests/integration/agents/fixtures/cycle_app08.json
 ```
@@ -43,8 +42,7 @@ document. Run this **before** `scripts/clean.sh --audit` wipes the DB.
     // ... more rows, ordered by id ASC
   ],
   "harness_trail": [ /* every harness verdict for the cycle */ ],
-  "operations":    [ /* post-hoc ops over the cycle, if any */ ],
-  "row_counts": { "audit_records": N, "harness_trail": N, "operations": N }
+  "row_counts": { "audit_records": N, "harness_trail": N }
 }
 ```
 
