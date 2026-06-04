@@ -1,271 +1,1348 @@
 {
-  "_note": "Sample audit trail for scenario 02. Single-tier compute scenario: only Compute Analyst is invoked because no other tiers are present in the topology. The structure shows what the Persistent Action Record produces during one full review. The agent system is not yet implemented; see CHANGELOG.md for status. See docs/audit-trail.md for the full schema.",
-
-  "_what_is_real": [
-    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.sh)",
-    "Tool-call action signatures: summary_statistics(...), get_time_pattern(...), get_infrastructure_context(...), these match the Reasoning Harness's read contract",
-    "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
-    "Single-specialist invocation pattern: System Mapper detects only the compute tier present in tier_topology, so Supervisor invokes only Compute Analyst",
-    "Specialist finding type and evidence_refs list: structurally identical to what the real specialist will produce",
-    "Cross-tier interactions empty: correlation_evidence.json is empty for scenario 02 because no other tier is present to correlate against"
-  ],
-
-  "_what_is_illustrative": [
-    "Timestamps: triggered_at, completed_at, placeholder values for a review that has not occurred",
-    "Durations: wall_clock_seconds, duration_ms per step, plausible estimates, not measurements",
-    "bundle_hash: 'sha256:c4f2a9...e7', fabricated",
-    "review_id: 'rev_b7c3d4e1', fabricated",
-    "Specific p50/p90/p95 observation numbers in each react_step, derived from gold-answer reasoning, not from a real summary_statistics tool call",
-    "Drift-check verdict ('tight'): what the architecture commits to producing, not what was measured by a live evaluator",
-    "Action Harness checks (all 'pass'): same; architectural commitment, not measurement"
-  ],
-
-  "_what_is_verifiable_today": [
-    "Run: scripts/verify_trace.sh",
-    "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
-    "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
-  ],
-
-  "review": {
-    "review_id": "rev_b7c3d4e1",
-    "scenario_id": "02",
-    "trigger": {
-      "trigger_type": "on_demand",
-      "triggered_at": "2026-05-29T15:30:00Z",
-      "triggered_by": "alex.meau"
-    },
-    "input_bundle": {
-      "bundle_hash": "sha256:c4f2a9...e7",
-      "input_files": [
-        "metadata.json",
-        "main.tf",
-        "compute_telemetry.json",
-        "database_telemetry.json",
-        "cache_telemetry.json",
-        "network_telemetry.json",
-        "correlation_evidence.json"
-      ]
-    },
-    "outcome": "issue_found",
-    "completed_at": "2026-05-29T15:30:31Z",
-    "wall_clock_seconds": 31
-  },
-
-  "input_harness_validation": {
-    "step_id": "ih_001",
-    "bundle_well_formed": true,
-    "schema_conformance": "all tiers conform",
-    "record_completeness": "1344 records per tier",
-    "timestamp_continuity": "monotonic, 15min spacing, no gaps",
-    "cross_tier_alignment": "index-aligned across tier arrays",
-    "terraform_parseable": true,
-    "verdict": "pass"
-  },
-
-  "system_mapper": {
-    "step_id": "sm_001",
-    "input": "Terraform main.tf",
-    "output": {
-      "tiers_present": [
-        "compute"
-      ],
-      "tiers_relevant": [
-        "compute"
-      ],
-      "dependency_graph": {
-        "compute": "aws_instance.app (6 instances, no ASG)"
-      },
-      "analysis_plan": {
-        "specialists_to_invoke": [
-          "compute_analyst"
-        ],
-        "cross_tier_pairs": [],
-        "rationale": "Single-tier topology. No database, cache, or network tier in Terraform. No cross-tier reasoning needed."
-      }
-    },
-    "duration_ms": 320
-  },
-
-  "supervisor_decision": {
-    "step_id": "sup_001",
-    "input": "analysis_plan from system_mapper",
-    "output": {
-      "specialists_invoked": [
-        "compute_analyst"
-      ],
-      "invocation_mode": "single"
-    },
-    "duration_ms": 40
-  },
-
-  "specialist_findings": [
-    {
-      "step_id": "spc_comp_001",
-      "specialist": "compute_analyst",
-      "react_steps": [
-        {
-          "step_id": "rs_comp_001",
-          "thought": "Is CPU utilization elevated and how stable is the distribution?",
-          "action": "summary_statistics(tier='compute', metric='cpu_p95')",
-          "observation_id": "obs_comp_001",
-          "observation": {
-            "p50": 33.9,
-            "p90": 78.0,
-            "p95": 91.2,
-            "mean": 38.0,
-            "windowed_max": 95.9,
-            "stddev": 14.1
-          }
-        },
-        {
-          "step_id": "rs_comp_002",
-          "thought": "High p95 with high variance. Is the spike pattern time-aligned?",
-          "action": "get_time_pattern(tier='compute', metric='cpu_p95')",
-          "observation_id": "obs_comp_002",
-          "observation": {
-            "baseline_cpu_p95": 34,
-            "peak_windows": [
-              {
-                "day_of_week": "weekday",
-                "window_utc": "09:45-11:15",
-                "cpu_p95": 91,
-                "occurrences": 11
-              },
-              {
-                "day_of_week": "weekday",
-                "window_utc": "14:45-16:15",
-                "cpu_p95": 89,
-                "occurrences": 11
-              }
-            ],
-            "pattern": "predictable_daily_spikes"
-          }
-        },
-        {
-          "step_id": "rs_comp_003",
-          "thought": "Spikes are predictable. Is application latency breaching SLA during these windows?",
-          "action": "summary_statistics(tier='compute', metric='application_p95_latency_ms')",
-          "observation_id": "obs_comp_003",
-          "observation": {
-            "p50": 194.8,
-            "p90": 380.0,
-            "p95": 487.5,
-            "mean": 230.0,
-            "windowed_max": 572.4,
-            "sla_threshold_ms": 300
-          }
-        },
-        {
-          "step_id": "rs_comp_004",
-          "thought": "SLA breached. Is the fleet auto-scaling, or fixed?",
-          "action": "get_infrastructure_context(resource='compute')",
-          "observation_id": "obs_comp_004",
-          "observation": {
-            "fleet": "6 x m5.large",
-            "scaling_policy": "none",
-            "terraform_resource": "aws_instance",
-            "asg_present": false,
-            "monthly_cost_usd": 5200
-          }
-        }
-      ],
-      "finding": {
-        "finding_type": "issue_found",
-        "primary_observation": "Fixed 6-instance fleet, no ASG. CPU spikes to 96% in two predictable daily weekday windows (09:45-11:15 and 14:45-16:15 UTC); p95 latency reaches 572ms versus the 300ms SLA target.",
-        "evidence_refs": [
-          "obs_comp_001",
-          "obs_comp_002",
-          "obs_comp_003",
-          "obs_comp_004"
-        ],
-        "confidence": "high"
-      },
-      "duration_ms": 9800
-    }
-  ],
-
-  "evaluator_records": {
-    "step_id": "eval_001",
-    "drift_check": [
-      {
-        "specialist": "compute_analyst",
-        "target_finding_id": "spc_comp_001",
-        "verdict": "tight",
-        "rationale": "Evidence chain resolves cleanly to obs_comp_001 through obs_comp_004. The pattern observation (obs_comp_002) directly supports the recommendation for scheduled scaling rather than reactive scaling."
-      }
-    ],
-    "cross_tier_interactions": [],
-    "synthesis": {
-      "synthesis_id": "syn_001",
-      "contributing_findings": [
-        "spc_comp_001"
-      ],
+  "cycle_id": "cycle_20260604_143726_ddaeaf53",
+  "application_id": "app-02",
+  "recommendation_row_id": 65,
+  "recommendation": {
+    "composite": {
+      "root_cause": "A fixed 6\u00d7 m5.large compute fleet with no auto-scaling policy cannot absorb recurring weekday demand peaks at 10:00 and 15:00, causing CPU saturation (88\u201396% p95) that directly produces 80 application latency SLA breaches (438\u2013572ms vs 300ms target).",
+      "summary": "A fixed 6\u00d7 m5.large fleet with scaling_policy=none saturates at 88\u201396% CPU during two predictable one-hour weekday windows (10:00 and 15:00), cascading into 80 latency breaches reaching 438\u2013572ms against the 300ms P95 SLA target. All 80 CPU breaches above 80% are perfectly timestamp-aligned with all 80 latency breaches above 300ms, confirming that insufficient peak compute capacity is the sole mechanism \u2014 the fleet is binary: healthy at 30\u201343% CPU off-peak, saturated at 88\u201396% during peaks, with zero observations in between. Database, cache, and network tiers are absent from the infrastructure ($0.00 spend each per ref 53), so no other tier requires action; the entire intervention is scoped to compute auto-scaling policy.",
       "finding_type": "issue_found",
       "primary_tier": "compute",
       "secondary_tier": null,
       "action_category": "scaling_policy_change",
-      "trade_off_scores": {
-        "cost": "savings of ~$2,496/month (48% reduction; blended 3.7 average instances vs current 6)",
-        "performance": "p95 latency from 572ms peak to 200-280ms estimated; peak CPU from 96% to 65%",
-        "reliability": "SLA target (p95 < 300ms) restored during spike windows",
-        "risk": "low to moderate (spike timing may shift; target-tracking safety net mitigates)"
-      },
-      "evidence_refs": [
-        "obs_comp_001",
-        "obs_comp_002",
-        "obs_comp_003",
-        "obs_comp_004"
-      ],
-      "evaluator_confidence": "high"
-    },
-    "duration_ms": 6800
-  },
-
-  "action_harness_gate": {
-    "step_id": "ah_001",
-    "gate_id": "ah_001",
-    "evaluator_id": "eval_001",
-    "synthesis_id": "syn_001",
-    "checks": [
-      {
-        "check": "well_formedness",
-        "verdict": "pass"
-      },
-      {
-        "check": "evidence_completeness",
-        "verdict": "pass",
-        "verified_refs": [
-          "obs_comp_001",
-          "obs_comp_002",
-          "obs_comp_003",
-          "obs_comp_004"
+      "headline": "Replace fixed 6\u00d7 m5.large fleet with predictive auto-scaling (baseline 4, peak 9) to eliminate 80 SLA breaches at recurring weekday 10:00/15:00 peaks while saving ~$1,476/month.",
+      "reasoning": "The reconciliation established a tight drift-check on the sole specialist (compute_analyst). The evidence chain is:\n\n1. **Bimodal CPU distribution** (ref 55): 1,264 records in the 30\u201343% band, 80 records in the 88\u201396% band, zero records between 43% and 88%. This binary pattern rules out gradual degradation and confirms a discrete demand spike.\n\n2. **Time-pattern isolation** (ref 57): CPU averages ~76.5% at hours 10 and 15 (weekdays only), vs 31\u201339% at all other hours. Weekend averages are 33\u201334%, confirming the peaks are weekday-specific.\n\n3. **Perfect breach alignment** (refs 59 + 61): All 80 CPU breaches (>80%) and all 80 latency breaches (>300ms) share identical timestamps across 10 weekdays (May 1\u201314, 2026), each day producing 8 breach records (4 at 10:00\u201310:45, 4 at 15:00\u201315:45 at 15-minute intervals).\n\n4. **Configuration root cause** (ref 49): scaling_policy=none, auto_scaling_min=null, auto_scaling_max=null. The fleet is fixed at 6\u00d7 m5.large with no mechanism to scale.\n\n5. **Memory is healthy** (ref 45): memory p95=63.8%, mean=51.0% \u2014 not a contributing factor.\n\n6. **No other tiers exist** (ref 53): database=$0, cache=$0, network=$0. The $5,200/mo total is entirely compute.\n\n**Sizing derivation:**\n\n- **Off-peak baseline = 4 instances:** Off-peak CPU runs 30\u201343% on 6 instances. On 4 instances: 45\u201364.5% CPU, placing p90 at ~62% \u2014 within the 60\u201375% healthy band. 3 instances would push the off-peak ceiling to 86% (43% \u00d7 6/3), risking breaches from normal traffic fluctuations.\n\n- **Peak target = 9 instances:** Peak CPU averages ~93% on 6 instances. On 9 instances: 93% \u00d7 6/9 = 62% CPU \u2014 comfortably within the 60\u201375% band. 8 instances would yield 93% \u00d7 6/8 = 69.75%, which is viable but leaves less headroom for peak variance (max observed 95.9% \u2192 95.9% \u00d7 6/8 = 71.9%, right at the band edge). 9 instances absorb even the worst-case 95.9% peak to 63.9%.\n\n- **Mechanism = predictive auto-scaling with metric trigger:** The peaks are metric-detectable (CPU crosses 65% sharply at known times), so predictive scaling with cpu_p95 > 65% trigger and 30-minute pre-warm is preferred over fixed-schedule scaling, which would be brittle to schedule drift.\n\n**Cost projection:**\n- Current: $5,200/mo for 6\u00d7 m5.large ($866.67/instance/month).\n- Per-instance cost \u2248 $866.67/mo (on-demand).\n- Weekly instance-hours: peak windows = 10 hrs \u00d7 9 instances = 90; off-peak weekday = 110 hrs \u00d7 4 instances = 440; weekend = 48 hrs \u00d7 4 instances = 192. Total = 722 instance-hours/week vs current 1,008. Ratio = 0.716.\n- Projected monthly: $5,200 \u00d7 0.716 \u2248 $3,724/mo.\n- Savings: ~$1,476/mo (28.4%).",
+      "specific_change": "1. **Create an ASG with predictive auto-scaling for the 6\u00d7 m5.large fleet** (refs 49, 55, 57, 61):\n   - Instance class: m5.large (retain current class \u2014 memory p95=63.8% on m5.large is healthy; downsizing to m5.medium would halve RAM to 4 GiB and push memory utilization into an unsafe band).\n   - ASG min (baseline): 4 instances.\n   - ASG max: 9 instances.\n   - Scaling trigger: cpu_p95 > 65% sustained for 2 consecutive data points (5-minute intervals).\n   - Scale-out action: add instances in increments of 2 until CPU drops below 65% or max (9) is reached.\n   - Scale-in action: remove 1 instance when cpu_p95 < 50% sustained for 15 minutes, down to min (4).\n   - Pre-warm: enable predictive scaling with 30-minute look-ahead, seeded from the weekday 10:00/15:00 pattern. This pre-warms 5 additional instances by 09:30 and 14:30 on weekdays.\n   - Cooldown: 300 seconds between scale actions.\n\n2. **Projected post-change fleet behavior:**\n   - Off-peak (20 of 24 weekday hours + all weekend): 4\u00d7 m5.large, CPU 45\u201365% \u2014 within healthy band.\n   - Peak (weekday 10:00\u201310:59, 15:00\u201315:59): 9\u00d7 m5.large, CPU 60\u201364% \u2014 SLA-compliant with headroom.\n   - Latency P95 at peak: projected 180\u2013240ms (current off-peak P50=194.8ms is the best proxy for unconstrained latency; with CPU at 62% instead of 93%, latency returns to this band).\n\n3. **Do NOT change:**\n   - Do NOT add database, cache, or network tiers \u2014 none exist in the infrastructure (ref 53: $0.00 for all three), and no evidence suggests they are needed.\n   - Do NOT downsize to m5.medium \u2014 memory p95=63.8% (ref 45) on m5.large (8 GiB) would become ~127.6% on m5.medium (4 GiB), causing OOM failures.\n   - Do NOT increase the fixed fleet count (e.g., to 9 permanently) \u2014 this would cost $7,800/mo (+$2,600/mo) instead of the ~$3,724/mo achieved by auto-scaling, wasting $4,076/mo in off-peak idle capacity.",
+      "evidence": {
+        "telemetry_observations": [
+          "cpu_p95 distribution is bimodal: 1,264 records at 30\u201343%, 80 records at 88\u201396%, zero records between (ref 55)",
+          "application_p95_latency_ms breaches: 80 records exceed 300ms SLA, reaching 438\u2013572ms, all at weekday 10:00 and 15:00 windows (ref 59)",
+          "cpu_p95 breaches: 80 records exceed 80%, reaching 88.4\u201395.9%, perfectly timestamp-aligned with the 80 latency breaches (ref 61)",
+          "cpu_p95 hourly averages: hour 10 = 76.5%, hour 15 = 76.4%, all other hours = 31\u201339% (ref 57)",
+          "memory_p95 = 63.8%, mean = 51.0% \u2014 healthy, not a contributing factor (ref 45)",
+          "application_p95_latency_ms overall: mean = 222.3ms, p50 = 194.8ms, p95 = 487.5ms (ref 47)"
+        ],
+        "infrastructure_context": [
+          "Compute configuration: 6\u00d7 m5.large, scaling_policy=none, auto_scaling_min=null, auto_scaling_max=null (ref 49)",
+          "Monthly cost: $5,200 total, entirely compute; database=$0, cache=$0, network=$0 (ref 53)",
+          "SLA target: 99.9% availability, P95 < 300ms (ref 51)"
+        ],
+        "correlation_observations": [
+          "All 80 CPU breaches (>80%) and all 80 latency breaches (>300ms) share identical timestamps across 10 weekdays, establishing direct CPU-to-latency causation (refs 59, 61)",
+          "Peaks occur exclusively on weekdays (Mon\u2013Fri avg CPU 40.2% vs Sat 34.2%, Sun 33.0%), confirming business-hour demand pattern (ref 57)"
         ]
       },
-      {
-        "check": "severity_calibration",
-        "verdict": "pass"
+      "projected_state": {
+        "cpu_p95_pct_estimate": "60-65",
+        "latency_p95_ms_estimate": "180-240",
+        "memory_p95_pct_estimate": "63.8",
+        "sla_availability_preserved": true,
+        "notes": "At 9\u00d7 m5.large during peak: worst-case CPU 95.9% \u00d7 6/9 = 63.9%. Off-peak at 4\u00d7 m5.large: CPU ceiling 43% \u00d7 6/4 = 64.5%. Latency returns to the unconstrained baseline (~P50 194.8ms) with CPU headroom. Memory unchanged \u2014 m5.large retained."
       },
-      {
-        "check": "duplication_against_recent_reviews",
-        "verdict": "pass"
+      "cost_impact": {
+        "current_monthly_usd": 5200.0,
+        "projected_monthly_usd": 3724.0,
+        "savings_monthly_usd": 1476.0,
+        "savings_pct": 28.4,
+        "notes": "Per-instance cost $866.67/mo. Weighted average fleet size drops from fixed 6 to ~4.3 instances (4 baseline \u00d7 158 off-peak hrs/wk + 9 peak \u00d7 10 peak hrs/wk = 722 instance-hrs vs 1,008 current). Savings from eliminating off-peak over-provisioning."
       }
-    ],
-    "verdict": "pass",
-    "duration_ms": 180
+    },
+    "reconciliation": {
+      "topology_assessment": "Only the Compute Analyst was invoked. The System Mapper's cost breakdown (evidence_ref=53) shows $0.00 for database, cache, and network tiers, indicating these tiers are not present in the app-02 infrastructure. Consequently, neither the Data Layer Analyst nor the Network Analyst was invoked \u2014 there are no database, cache, or network resources to analyze. The entire application stack is a compute-only deployment: 6\u00d7 m5.large instances with no backing data store or cache layer visible in the infrastructure configuration. This means the compute tier is the sole tier available for diagnosis, and any performance issue must be attributable to compute capacity or configuration.",
+      "specialist_findings_summary": [
+        {
+          "agent": "compute_analyst",
+          "finding_type": "issue_found",
+          "confidence": "high",
+          "key_observation": "The fixed 6\u00d7 m5.large fleet with no auto-scaling policy hits CPU saturation (88\u201396% p95) exclusively during two recurring weekday one-hour windows (10:00 and 15:00), producing exactly 80 application latency SLA breaches (438\u2013572ms vs the 300ms target) that are perfectly timestamp-aligned with the CPU spikes. Outside these windows, CPU sits in a healthy 30\u201343% band and latency remains well under SLA, confirming that insufficient peak compute capacity \u2014 not a systemic overload or data-layer bottleneck \u2014 is the root cause.",
+          "evidence_refs": [
+            43,
+            45,
+            47,
+            49,
+            51,
+            53,
+            55,
+            57,
+            59,
+            61
+          ]
+        }
+      ],
+      "drift_check": [
+        {
+          "agent": "compute_analyst",
+          "verdict": "tight",
+          "narrative": "The Compute Analyst's conclusion that a fixed fleet without auto-scaling causes SLA breaches during predictable peak windows is tightly supported by converging evidence from multiple independent observations. The bimodal CPU distribution (ref 55) shows 1,264 records in the 30\u201343% healthy band and 80 records in 88\u201396% with zero values between, ruling out gradual degradation. The time-pattern analysis (ref 57) isolates the spikes to exactly hours 10 and 15 on weekdays (avg ~76.5% vs 31\u201339% for all other hours). The 80 CPU breaches above 80% (ref 61) are perfectly timestamp-aligned with the 80 latency breaches above 300ms SLA (ref 59), establishing direct causation from CPU saturation to latency degradation. The configuration (ref 49) confirms scaling_policy=none with no ASG bounds, explaining why the fleet cannot absorb these predictable demand peaks. Memory at p95=63.8% (ref 45) is healthy, ruling out memory pressure as a contributing factor. The cost data (ref 53) confirms no other tiers exist, so the analyst correctly scoped the issue to compute alone.",
+          "supporting_evidence_refs": [
+            43,
+            45,
+            47,
+            49,
+            51,
+            53,
+            55,
+            57,
+            59,
+            61
+          ]
+        }
+      ],
+      "cross_tier_correlations": [],
+      "conflict_resolution": "No specialist disagreement. Only one specialist (compute_analyst) was invoked because database, cache, and network tiers are absent from the app-02 infrastructure (all show $0.00 spend in ref 53). The compute analyst's finding of issue_found is the sole actionable claim and will form the basis of the recommendation."
+    },
+    "reflection": {
+      "trade_off_analysis": [
+        {
+          "dimension": "cost",
+          "value": "-$1,476/month (28.4% reduction)",
+          "note": "Current $5,200/mo for 6\u00d7 fixed m5.large drops to ~$3,724/mo with auto-scaling (weighted avg ~4.3 instances). Savings come entirely from eliminating off-peak over-provisioning \u2014 4 instances handle 30\u201343% CPU load that currently runs on 6. No new tier costs introduced; database, cache, and network remain absent at $0."
+        },
+        {
+          "dimension": "performance",
+          "value": "P95 latency from 487.5ms to 180\u2013240ms; 80 SLA breaches eliminated",
+          "note": "Peak CPU drops from 88\u201396% on 6 instances to 60\u201364% on 9 instances, removing the CPU saturation that drove latency to 438\u2013572ms during weekday 10:00/15:00 windows. Off-peak latency is already healthy (P50=194.8ms); the change restores peak latency to this unconstrained baseline. All 80 latency breaches above the 300ms SLA target are eliminated."
+        },
+        {
+          "dimension": "reliability",
+          "value": "SLA compliance restored from ~94% to 99.9%+ during peak windows",
+          "note": "80 of 1,344 observation intervals breached the 300ms P95 SLA (5.95% breach rate). With peak CPU at 60\u201364% instead of 88\u201396%, these breaches are eliminated. The ASG min=4 ensures baseline capacity never drops below the level needed for off-peak traffic (CPU 45\u201365%), and the 30-minute pre-warm prevents cold-start latency at peak onset."
+        },
+        {
+          "dimension": "risk",
+          "value": "Low \u2014 predictive scaling adds operational complexity but is mitigated by deterministic peak pattern",
+          "note": "Primary risk is auto-scaling lag if peak timing shifts or a novel traffic pattern emerges. This is mitigated by the extremely deterministic bimodal pattern (zero CPU observations between 43% and 88%, peaks locked to weekday hours 10 and 15). The 30-minute pre-warm and cpu_p95 > 65% reactive trigger provide a two-layer safety net. Secondary risk: reducing from 6 to 4 off-peak instances raises off-peak CPU ceiling from 43% to 64.5% \u2014 still within the healthy band but with less headroom for unexpected off-peak spikes. The scale-out trigger at 65% catches any such spike before it reaches breach territory."
+        }
+      ],
+      "trade_off_philosophy": "This is the rare recommendation that improves all three axes simultaneously: cost decreases, performance improves, and reliability is restored. The mechanism is not a trade-off exchange but an elimination of waste \u2014 the fixed fleet is simultaneously over-provisioned 94% of the time (6 instances where 4 suffice) and under-provisioned 6% of the time (6 instances where 9 are needed). Auto-scaling resolves both failures with a single policy change. The alternative of scaling up to a fixed 9-instance fleet was explicitly rejected: it would cost $7,800/mo (+$2,600/mo over current) while leaving $4,076/mo of off-peak idle capacity, versus $3,724/mo with auto-scaling. The alternative of downsizing instance class to m5.medium was rejected because memory p95=63.8% on 8 GiB (m5.large) would exceed physical RAM on 4 GiB (m5.medium). The directional logic is that a predictable, bimodal workload is the ideal auto-scaling candidate \u2014 the pattern is deterministic enough for predictive pre-warming yet metric-detectable enough for reactive fallback.",
+      "trade_off_scores": {
+        "cost_impact": 1.0,
+        "performance_impact": 1.0,
+        "reliability_impact": 1.0
+      },
+      "evaluator_confidence_level": "high",
+      "evaluator_confidence_narrative": "Drift-check tight on the sole specialist invoked. The load-bearing observations are: (1) the bimodal CPU distribution (ref 55) showing exactly zero records between 43% and 88%, which establishes that demand is binary (healthy or saturated) with no intermediate state \u2014 this rules out gradual degradation, noisy-neighbor effects, or misconfigured application logic as alternative explanations; (2) the perfect 80-for-80 timestamp alignment between CPU breaches >80% (ref 61) and latency breaches >300ms (ref 59), which establishes direct causation from CPU saturation to SLA violation \u2014 if even a few latency breaches occurred without corresponding CPU breaches, an alternative root cause would need consideration; (3) the scaling_policy=none configuration (ref 49), which confirms the fleet has no mechanism to respond to demand changes, making the policy gap the actionable root cause rather than a capacity shortfall in the instance class or count. The absence of database, cache, and network tiers (ref 53, $0.00 across all three) is the load-bearing negative observation \u2014 it eliminates the possibility of a hidden data-layer or network bottleneck masquerading as a compute issue, and licenses scoping the entire intervention to compute alone. The cost derivation is arithmetic from the per-instance cost ($866.67/mo from $5,200/6) and the weighted instance-hour calculation, not estimated.",
+      "evaluator_confidence": 0.95
+    }
   },
-
-  "review_packet": {
-    "packet_id": "pkt_b7c3d4e1_01",
-    "gate_id": "ah_001",
-    "synthesis_id": "syn_001",
-    "review_id": "rev_b7c3d4e1",
-    "rendered_at": "2026-05-29T15:30:31Z",
-    "rendered_to": "sample_runs/reports/scenario_02_report.md",
-    "evidence_chain_length": 6,
-    "audit_walk_starting_point": "review.review_id = rev_b7c3d4e1"
+  "specialist_findings": [
+    {
+      "id": 62,
+      "agent": "compute_analyst",
+      "timestamp": "2026-06-04 14:39:15",
+      "content": {
+        "specialist": "compute_analyst",
+        "finding_type": "issue_found",
+        "headline": "Fixed 6\u00d7 m5.large fleet with no auto-scaling saturates CPU (90-96%) at recurring weekday 10:00 and 15:00 peaks, causing 80 SLA latency breaches (up to 572ms vs 300ms target).",
+        "primary_tier": "compute",
+        "confidence": 0.97,
+        "reasoning_summary": "The CPU p95 distribution is strongly bimodal: 1,264 records sit in the 30\u201343% band (healthy baseline), but 80 records spike to 88\u201396% with no values in between, indicating a binary load pattern rather than gradual degradation. Time-pattern analysis pinpoints these spikes to weekday hours 10:00 (avg 76.5%) and 15:00 (avg 76.4%), with all other hours at 31\u201339%. These CPU saturations directly drive 80 application_p95_latency_ms breaches above the 300ms SLA threshold, with values reaching 438\u2013572ms at the exact same timestamps. The fleet is configured as 6\u00d7 m5.large with scaling_policy=none and no ASG bounds, meaning it cannot elastically absorb these predictable recurring demand peaks. Adding time-based or metric-based auto-scaling (or increasing the base instance count) would address the SLA violations at the identified peak windows.",
+        "evidence_refs": [
+          43,
+          45,
+          47,
+          49,
+          51,
+          53,
+          55,
+          57,
+          59,
+          61
+        ]
+      },
+      "evidence_refs_chain": [
+        {
+          "ref": 43,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 45,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 47,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 49,
+          "type": "observation",
+          "tool_name": "get_configuration",
+          "resolved": true
+        },
+        {
+          "ref": 51,
+          "type": "observation",
+          "tool_name": "get_sla_target",
+          "resolved": true
+        },
+        {
+          "ref": 53,
+          "type": "observation",
+          "tool_name": "get_monthly_cost",
+          "resolved": true
+        },
+        {
+          "ref": 55,
+          "type": "observation",
+          "tool_name": "get_metric_distribution",
+          "resolved": true
+        },
+        {
+          "ref": 57,
+          "type": "observation",
+          "tool_name": "get_time_pattern",
+          "resolved": true
+        },
+        {
+          "ref": 59,
+          "type": "observation",
+          "tool_name": "detect_threshold_breaches",
+          "resolved": true
+        },
+        {
+          "ref": 61,
+          "type": "observation",
+          "tool_name": "detect_threshold_breaches",
+          "resolved": true
+        }
+      ]
+    }
+  ],
+  "evidence_chain": {
+    "43": {
+      "id": 43,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:47",
+      "parent_id": 42,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "statistics": {
+            "mean": 38.434375,
+            "p50": 33.9,
+            "p90": 41.27,
+            "p95": 91.13999999999997
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 42,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95"
+        }
+      }
+    },
+    "45": {
+      "id": 45,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:47",
+      "parent_id": 44,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "memory_p95",
+          "statistics": {
+            "mean": 50.975,
+            "p50": 49.0,
+            "p90": 55.60000000000001,
+            "p95": 63.8
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 44,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "memory_p95"
+        }
+      }
+    },
+    "47": {
+      "id": 47,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:47",
+      "parent_id": 46,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "statistics": {
+            "mean": 222.30290178571428,
+            "p50": 194.8,
+            "p90": 245.37,
+            "p95": 487.46999999999997
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 46,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms"
+        }
+      }
+    },
+    "49": {
+      "id": 49,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:47",
+      "parent_id": 48,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_configuration",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "configuration": {
+            "present": true,
+            "instance_class": "m5.large",
+            "instance_count": 6,
+            "scaling_policy": "none",
+            "auto_scaling_min": null,
+            "auto_scaling_max": null
+          }
+        }
+      },
+      "tool_name": "get_configuration",
+      "tool_call": {
+        "id": 48,
+        "tool_name": "get_configuration",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute"
+        }
+      }
+    },
+    "51": {
+      "id": 51,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:47",
+      "parent_id": 50,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_sla_target",
+        "result": {
+          "app_name": "app-02",
+          "sla_target": {
+            "description": "99.9% availability, P95 < 300ms",
+            "p95_ms": 300.0,
+            "availability_pct": 99.9
+          }
+        }
+      },
+      "tool_name": "get_sla_target",
+      "tool_call": {
+        "id": 50,
+        "tool_name": "get_sla_target",
+        "args": {
+          "app_name": "app-02"
+        }
+      }
+    },
+    "53": {
+      "id": 53,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:47",
+      "parent_id": 52,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs",
+        "reconciliation.topology_assessment (prose @ char 74)"
+      ],
+      "content": {
+        "tool_name": "get_monthly_cost",
+        "result": {
+          "app_name": "app-02",
+          "cost_baseline": {
+            "monthly_cost_total_usd": 5200.0,
+            "by_tier": {
+              "compute": 5200.0,
+              "database": 0.0,
+              "cache": 0.0,
+              "network": 0.0
+            }
+          }
+        }
+      },
+      "tool_name": "get_monthly_cost",
+      "tool_call": {
+        "id": 52,
+        "tool_name": "get_monthly_cost",
+        "args": {
+          "app_name": "app-02"
+        }
+      }
+    },
+    "55": {
+      "id": 55,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:56",
+      "parent_id": 54,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_metric_distribution",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "distribution": {
+            "min": 30.0,
+            "max": 95.9,
+            "n_bins": 10,
+            "bins": [
+              {
+                "lo": 30.0,
+                "hi": 36.59,
+                "count": 846
+              },
+              {
+                "lo": 36.59,
+                "hi": 43.18,
+                "count": 418
+              },
+              {
+                "lo": 43.18,
+                "hi": 49.77,
+                "count": 0
+              },
+              {
+                "lo": 49.77,
+                "hi": 56.36,
+                "count": 0
+              },
+              {
+                "lo": 56.36,
+                "hi": 62.95,
+                "count": 0
+              },
+              {
+                "lo": 62.95,
+                "hi": 69.54,
+                "count": 0
+              },
+              {
+                "lo": 69.54,
+                "hi": 76.13,
+                "count": 0
+              },
+              {
+                "lo": 76.13,
+                "hi": 82.72,
+                "count": 0
+              },
+              {
+                "lo": 82.72,
+                "hi": 89.31,
+                "count": 2
+              },
+              {
+                "lo": 89.31,
+                "hi": 95.9,
+                "count": 78
+              }
+            ]
+          }
+        }
+      },
+      "tool_name": "get_metric_distribution",
+      "tool_call": {
+        "id": 54,
+        "tool_name": "get_metric_distribution",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95"
+        }
+      }
+    },
+    "57": {
+      "id": 57,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:56",
+      "parent_id": 56,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_time_pattern",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "time_pattern": {
+            "by_hour_of_day": {
+              "0": 31.803571428571427,
+              "1": 31.65535714285714,
+              "2": 31.544642857142858,
+              "3": 31.583928571428572,
+              "4": 31.742857142857144,
+              "5": 32.17321428571429,
+              "6": 33.489285714285714,
+              "7": 35.46785714285714,
+              "8": 37.54642857142857,
+              "9": 38.89821428571429,
+              "10": 76.49464285714285,
+              "11": 39.325,
+              "12": 39.06428571428572,
+              "13": 39.114285714285714,
+              "14": 39.34464285714286,
+              "15": 76.40357142857142,
+              "16": 39.135714285714286,
+              "17": 38.25,
+              "18": 36.56071428571428,
+              "19": 34.48571428571429,
+              "20": 32.910714285714285,
+              "21": 32.18035714285714,
+              "22": 31.75357142857143,
+              "23": 31.49642857142857
+            },
+            "by_weekday": {
+              "0": 40.172916666666666,
+              "1": 40.225520833333334,
+              "2": 40.93385416666667,
+              "3": 40.228125,
+              "4": 40.27916666666667,
+              "5": 34.1953125,
+              "6": 33.00572916666667
+            },
+            "n_records": 1344
+          }
+        }
+      },
+      "tool_name": "get_time_pattern",
+      "tool_call": {
+        "id": 56,
+        "tool_name": "get_time_pattern",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95"
+        }
+      }
+    },
+    "59": {
+      "id": 59,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:56",
+      "parent_id": 58,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "detect_threshold_breaches",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "threshold": 300.0,
+          "comparator": "gt",
+          "breach_count": 80,
+          "breaches": [
+            {
+              "timestamp": "2026-05-01T10:00:00Z",
+              "value": 498.7
+            },
+            {
+              "timestamp": "2026-05-01T10:15:00Z",
+              "value": 541.3
+            },
+            {
+              "timestamp": "2026-05-01T10:30:00Z",
+              "value": 563.8
+            },
+            {
+              "timestamp": "2026-05-01T10:45:00Z",
+              "value": 548.2
+            },
+            {
+              "timestamp": "2026-05-01T15:00:00Z",
+              "value": 487.5
+            },
+            {
+              "timestamp": "2026-05-01T15:15:00Z",
+              "value": 532.1
+            },
+            {
+              "timestamp": "2026-05-01T15:30:00Z",
+              "value": 571.4
+            },
+            {
+              "timestamp": "2026-05-01T15:45:00Z",
+              "value": 549.8
+            },
+            {
+              "timestamp": "2026-05-04T10:00:00Z",
+              "value": 487.3
+            },
+            {
+              "timestamp": "2026-05-04T10:15:00Z",
+              "value": 521.6
+            },
+            {
+              "timestamp": "2026-05-04T10:30:00Z",
+              "value": 548.2
+            },
+            {
+              "timestamp": "2026-05-04T10:45:00Z",
+              "value": 503.7
+            },
+            {
+              "timestamp": "2026-05-04T15:00:00Z",
+              "value": 472.8
+            },
+            {
+              "timestamp": "2026-05-04T15:15:00Z",
+              "value": 508.4
+            },
+            {
+              "timestamp": "2026-05-04T15:30:00Z",
+              "value": 556.9
+            },
+            {
+              "timestamp": "2026-05-04T15:45:00Z",
+              "value": 531.2
+            },
+            {
+              "timestamp": "2026-05-05T10:00:00Z",
+              "value": 498.6
+            },
+            {
+              "timestamp": "2026-05-05T10:15:00Z",
+              "value": 541.3
+            },
+            {
+              "timestamp": "2026-05-05T10:30:00Z",
+              "value": 563.7
+            },
+            {
+              "timestamp": "2026-05-05T10:45:00Z",
+              "value": 521.4
+            },
+            {
+              "timestamp": "2026-05-05T15:00:00Z",
+              "value": 472.5
+            },
+            {
+              "timestamp": "2026-05-05T15:15:00Z",
+              "value": 528.9
+            },
+            {
+              "timestamp": "2026-05-05T15:30:00Z",
+              "value": 571.2
+            },
+            {
+              "timestamp": "2026-05-05T15:45:00Z",
+              "value": 507.6
+            },
+            {
+              "timestamp": "2026-05-06T10:00:00Z",
+              "value": 487.2
+            },
+            {
+              "timestamp": "2026-05-06T10:15:00Z",
+              "value": 512.6
+            },
+            {
+              "timestamp": "2026-05-06T10:30:00Z",
+              "value": 531.4
+            },
+            {
+              "timestamp": "2026-05-06T10:45:00Z",
+              "value": 503.8
+            },
+            {
+              "timestamp": "2026-05-06T15:00:00Z",
+              "value": 478.3
+            },
+            {
+              "timestamp": "2026-05-06T15:15:00Z",
+              "value": 498.7
+            },
+            {
+              "timestamp": "2026-05-06T15:30:00Z",
+              "value": 524.1
+            },
+            {
+              "timestamp": "2026-05-06T15:45:00Z",
+              "value": 509.5
+            },
+            {
+              "timestamp": "2026-05-07T10:00:00Z",
+              "value": 487.6
+            },
+            {
+              "timestamp": "2026-05-07T10:15:00Z",
+              "value": 531.2
+            },
+            {
+              "timestamp": "2026-05-07T10:30:00Z",
+              "value": 558.4
+            },
+            {
+              "timestamp": "2026-05-07T10:45:00Z",
+              "value": 544.7
+            },
+            {
+              "timestamp": "2026-05-07T15:00:00Z",
+              "value": 462.5
+            },
+            {
+              "timestamp": "2026-05-07T15:15:00Z",
+              "value": 508.3
+            },
+            {
+              "timestamp": "2026-05-07T15:30:00Z",
+              "value": 551.9
+            },
+            {
+              "timestamp": "2026-05-07T15:45:00Z",
+              "value": 527.6
+            },
+            {
+              "timestamp": "2026-05-08T10:00:00Z",
+              "value": 498.7
+            },
+            {
+              "timestamp": "2026-05-08T10:15:00Z",
+              "value": 521.3
+            },
+            {
+              "timestamp": "2026-05-08T10:30:00Z",
+              "value": 511.6
+            },
+            {
+              "timestamp": "2026-05-08T10:45:00Z",
+              "value": 534.8
+            },
+            {
+              "timestamp": "2026-05-08T15:00:00Z",
+              "value": 487.3
+            },
+            {
+              "timestamp": "2026-05-08T15:15:00Z",
+              "value": 514.9
+            },
+            {
+              "timestamp": "2026-05-08T15:30:00Z",
+              "value": 538.2
+            },
+            {
+              "timestamp": "2026-05-08T15:45:00Z",
+              "value": 506.7
+            },
+            {
+              "timestamp": "2026-05-11T10:00:00Z",
+              "value": 487.2
+            },
+            {
+              "timestamp": "2026-05-11T10:15:00Z",
+              "value": 512.8
+            },
+            {
+              "timestamp": "2026-05-11T10:30:00Z",
+              "value": 541.3
+            },
+            {
+              "timestamp": "2026-05-11T10:45:00Z",
+              "value": 523.7
+            },
+            {
+              "timestamp": "2026-05-11T15:00:00Z",
+              "value": 478.6
+            },
+            {
+              "timestamp": "2026-05-11T15:15:00Z",
+              "value": 503.4
+            },
+            {
+              "timestamp": "2026-05-11T15:30:00Z",
+              "value": 531.9
+            },
+            {
+              "timestamp": "2026-05-11T15:45:00Z",
+              "value": 516.2
+            },
+            {
+              "timestamp": "2026-05-12T10:00:00Z",
+              "value": 498.7
+            },
+            {
+              "timestamp": "2026-05-12T10:15:00Z",
+              "value": 541.3
+            },
+            {
+              "timestamp": "2026-05-12T10:30:00Z",
+              "value": 563.8
+            },
+            {
+              "timestamp": "2026-05-12T10:45:00Z",
+              "value": 519.4
+            },
+            {
+              "timestamp": "2026-05-12T15:00:00Z",
+              "value": 487.2
+            },
+            {
+              "timestamp": "2026-05-12T15:15:00Z",
+              "value": 548.6
+            },
+            {
+              "timestamp": "2026-05-12T15:30:00Z",
+              "value": 571.9
+            },
+            {
+              "timestamp": "2026-05-12T15:45:00Z",
+              "value": 512.8
+            },
+            {
+              "timestamp": "2026-05-13T10:00:00Z",
+              "value": 438.2
+            },
+            {
+              "timestamp": "2026-05-13T10:15:00Z",
+              "value": 487.6
+            },
+            {
+              "timestamp": "2026-05-13T10:30:00Z",
+              "value": 531.4
+            },
+            {
+              "timestamp": "2026-05-13T10:45:00Z",
+              "value": 558.9
+            },
+            {
+              "timestamp": "2026-05-13T15:00:00Z",
+              "value": 445.7
+            },
+            {
+              "timestamp": "2026-05-13T15:15:00Z",
+              "value": 498.3
+            },
+            {
+              "timestamp": "2026-05-13T15:30:00Z",
+              "value": 543.6
+            },
+            {
+              "timestamp": "2026-05-13T15:45:00Z",
+              "value": 571.2
+            },
+            {
+              "timestamp": "2026-05-14T10:00:00Z",
+              "value": 498.3
+            },
+            {
+              "timestamp": "2026-05-14T10:15:00Z",
+              "value": 541.2
+            },
+            {
+              "timestamp": "2026-05-14T10:30:00Z",
+              "value": 563.7
+            },
+            {
+              "timestamp": "2026-05-14T10:45:00Z",
+              "value": 572.4
+            },
+            {
+              "timestamp": "2026-05-14T15:00:00Z",
+              "value": 487.6
+            },
+            {
+              "timestamp": "2026-05-14T15:15:00Z",
+              "value": 528.4
+            },
+            {
+              "timestamp": "2026-05-14T15:30:00Z",
+              "value": 557.9
+            },
+            {
+              "timestamp": "2026-05-14T15:45:00Z",
+              "value": 569.2
+            }
+          ]
+        }
+      },
+      "tool_name": "detect_threshold_breaches",
+      "tool_call": {
+        "id": 58,
+        "tool_name": "detect_threshold_breaches",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "threshold": 300,
+          "comparator": "gt"
+        }
+      }
+    },
+    "61": {
+      "id": 61,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 14:38:56",
+      "parent_id": 60,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "detect_threshold_breaches",
+        "result": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "threshold": 80.0,
+          "comparator": "gt",
+          "breach_count": 80,
+          "breaches": [
+            {
+              "timestamp": "2026-05-01T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-01T10:15:00Z",
+              "value": 93.5
+            },
+            {
+              "timestamp": "2026-05-01T10:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-01T10:45:00Z",
+              "value": 92.6
+            },
+            {
+              "timestamp": "2026-05-01T15:00:00Z",
+              "value": 90.4
+            },
+            {
+              "timestamp": "2026-05-01T15:15:00Z",
+              "value": 92.8
+            },
+            {
+              "timestamp": "2026-05-01T15:30:00Z",
+              "value": 95.3
+            },
+            {
+              "timestamp": "2026-05-01T15:45:00Z",
+              "value": 93.1
+            },
+            {
+              "timestamp": "2026-05-04T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-04T10:15:00Z",
+              "value": 93.5
+            },
+            {
+              "timestamp": "2026-05-04T10:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-04T10:45:00Z",
+              "value": 92.1
+            },
+            {
+              "timestamp": "2026-05-04T15:00:00Z",
+              "value": 90.4
+            },
+            {
+              "timestamp": "2026-05-04T15:15:00Z",
+              "value": 92.7
+            },
+            {
+              "timestamp": "2026-05-04T15:30:00Z",
+              "value": 95.3
+            },
+            {
+              "timestamp": "2026-05-04T15:45:00Z",
+              "value": 93.1
+            },
+            {
+              "timestamp": "2026-05-05T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-05T10:15:00Z",
+              "value": 93.5
+            },
+            {
+              "timestamp": "2026-05-05T10:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-05T10:45:00Z",
+              "value": 92.1
+            },
+            {
+              "timestamp": "2026-05-05T15:00:00Z",
+              "value": 89.4
+            },
+            {
+              "timestamp": "2026-05-05T15:15:00Z",
+              "value": 92.7
+            },
+            {
+              "timestamp": "2026-05-05T15:30:00Z",
+              "value": 95.3
+            },
+            {
+              "timestamp": "2026-05-05T15:45:00Z",
+              "value": 90.8
+            },
+            {
+              "timestamp": "2026-05-06T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-06T10:15:00Z",
+              "value": 93.7
+            },
+            {
+              "timestamp": "2026-05-06T10:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-06T10:45:00Z",
+              "value": 92.5
+            },
+            {
+              "timestamp": "2026-05-06T15:00:00Z",
+              "value": 90.4
+            },
+            {
+              "timestamp": "2026-05-06T15:15:00Z",
+              "value": 92.9
+            },
+            {
+              "timestamp": "2026-05-06T15:30:00Z",
+              "value": 95.3
+            },
+            {
+              "timestamp": "2026-05-06T15:45:00Z",
+              "value": 93.6
+            },
+            {
+              "timestamp": "2026-05-07T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-07T10:15:00Z",
+              "value": 93.7
+            },
+            {
+              "timestamp": "2026-05-07T10:30:00Z",
+              "value": 95.1
+            },
+            {
+              "timestamp": "2026-05-07T10:45:00Z",
+              "value": 94.3
+            },
+            {
+              "timestamp": "2026-05-07T15:00:00Z",
+              "value": 89.6
+            },
+            {
+              "timestamp": "2026-05-07T15:15:00Z",
+              "value": 92.4
+            },
+            {
+              "timestamp": "2026-05-07T15:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-07T15:45:00Z",
+              "value": 93.2
+            },
+            {
+              "timestamp": "2026-05-08T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-08T10:15:00Z",
+              "value": 93.8
+            },
+            {
+              "timestamp": "2026-05-08T10:30:00Z",
+              "value": 92.5
+            },
+            {
+              "timestamp": "2026-05-08T10:45:00Z",
+              "value": 94.1
+            },
+            {
+              "timestamp": "2026-05-08T15:00:00Z",
+              "value": 90.4
+            },
+            {
+              "timestamp": "2026-05-08T15:15:00Z",
+              "value": 92.7
+            },
+            {
+              "timestamp": "2026-05-08T15:30:00Z",
+              "value": 94.3
+            },
+            {
+              "timestamp": "2026-05-08T15:45:00Z",
+              "value": 91.8
+            },
+            {
+              "timestamp": "2026-05-11T10:00:00Z",
+              "value": 91.4
+            },
+            {
+              "timestamp": "2026-05-11T10:15:00Z",
+              "value": 93.2
+            },
+            {
+              "timestamp": "2026-05-11T10:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-11T10:45:00Z",
+              "value": 92.6
+            },
+            {
+              "timestamp": "2026-05-11T15:00:00Z",
+              "value": 90.8
+            },
+            {
+              "timestamp": "2026-05-11T15:15:00Z",
+              "value": 92.4
+            },
+            {
+              "timestamp": "2026-05-11T15:30:00Z",
+              "value": 94.1
+            },
+            {
+              "timestamp": "2026-05-11T15:45:00Z",
+              "value": 91.9
+            },
+            {
+              "timestamp": "2026-05-12T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-12T10:15:00Z",
+              "value": 93.5
+            },
+            {
+              "timestamp": "2026-05-12T10:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-12T10:45:00Z",
+              "value": 92.1
+            },
+            {
+              "timestamp": "2026-05-12T15:00:00Z",
+              "value": 90.4
+            },
+            {
+              "timestamp": "2026-05-12T15:15:00Z",
+              "value": 93.1
+            },
+            {
+              "timestamp": "2026-05-12T15:30:00Z",
+              "value": 95.3
+            },
+            {
+              "timestamp": "2026-05-12T15:45:00Z",
+              "value": 91.7
+            },
+            {
+              "timestamp": "2026-05-13T10:00:00Z",
+              "value": 88.4
+            },
+            {
+              "timestamp": "2026-05-13T10:15:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-13T10:30:00Z",
+              "value": 93.7
+            },
+            {
+              "timestamp": "2026-05-13T10:45:00Z",
+              "value": 95.1
+            },
+            {
+              "timestamp": "2026-05-13T15:00:00Z",
+              "value": 89.1
+            },
+            {
+              "timestamp": "2026-05-13T15:15:00Z",
+              "value": 92.4
+            },
+            {
+              "timestamp": "2026-05-13T15:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-13T15:45:00Z",
+              "value": 95.9
+            },
+            {
+              "timestamp": "2026-05-14T10:00:00Z",
+              "value": 91.2
+            },
+            {
+              "timestamp": "2026-05-14T10:15:00Z",
+              "value": 93.5
+            },
+            {
+              "timestamp": "2026-05-14T10:30:00Z",
+              "value": 94.8
+            },
+            {
+              "timestamp": "2026-05-14T10:45:00Z",
+              "value": 95.6
+            },
+            {
+              "timestamp": "2026-05-14T15:00:00Z",
+              "value": 89.4
+            },
+            {
+              "timestamp": "2026-05-14T15:15:00Z",
+              "value": 92.7
+            },
+            {
+              "timestamp": "2026-05-14T15:30:00Z",
+              "value": 94.3
+            },
+            {
+              "timestamp": "2026-05-14T15:45:00Z",
+              "value": 95.1
+            }
+          ]
+        }
+      },
+      "tool_name": "detect_threshold_breaches",
+      "tool_call": {
+        "id": 60,
+        "tool_name": "detect_threshold_breaches",
+        "args": {
+          "app_name": "app-02",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "threshold": 80,
+          "comparator": "gt"
+        }
+      }
+    },
+    "62": {
+      "id": 62,
+      "status": "resolved",
+      "type": "specialist_finding",
+      "agent": "compute_analyst",
+      "category": "decision",
+      "timestamp": "2026-06-04 14:39:15",
+      "parent_id": null,
+      "cited_by": [
+        "recommendation.evidence_refs"
+      ],
+      "content": {
+        "specialist": "compute_analyst",
+        "finding_type": "issue_found",
+        "headline": "Fixed 6\u00d7 m5.large fleet with no auto-scaling saturates CPU (90-96%) at recurring weekday 10:00 and 15:00 peaks, causing 80 SLA latency breaches (up to 572ms vs 300ms target).",
+        "primary_tier": "compute",
+        "confidence": 0.97,
+        "reasoning_summary": "The CPU p95 distribution is strongly bimodal: 1,264 records sit in the 30\u201343% band (healthy baseline), but 80 records spike to 88\u201396% with no values in between, indicating a binary load pattern rather than gradual degradation. Time-pattern analysis pinpoints these spikes to weekday hours 10:00 (avg 76.5%) and 15:00 (avg 76.4%), with all other hours at 31\u201339%. These CPU saturations directly drive 80 application_p95_latency_ms breaches above the 300ms SLA threshold, with values reaching 438\u2013572ms at the exact same timestamps. The fleet is configured as 6\u00d7 m5.large with scaling_policy=none and no ASG bounds, meaning it cannot elastically absorb these predictable recurring demand peaks. Adding time-based or metric-based auto-scaling (or increasing the base instance count) would address the SLA violations at the identified peak windows.",
+        "evidence_refs": [
+          43,
+          45,
+          47,
+          49,
+          51,
+          53,
+          55,
+          57,
+          59,
+          61
+        ]
+      }
+    }
   },
-
-  "hitl_decision": {
-    "_note": "HITL state is filled in after a human reviewer takes action. Empty here because the system just produced the report."
+  "summary": {
+    "unique_refs_cited": 11,
+    "resolved": 11,
+    "dangling": 0,
+    "observation_refs": 10,
+    "specialist_finding_refs": 1
   }
 }

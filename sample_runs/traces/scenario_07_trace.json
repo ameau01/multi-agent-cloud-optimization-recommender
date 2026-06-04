@@ -1,424 +1,4792 @@
 {
-  "_note": "Sample audit trail for scenario 07. Cross-tier scenario: cache memory pressure cascades into database load and application latency. The Data Layer Analyst covers both cache and database (per docs/agents.md), so the cross-tier signal appears within a single specialist's findings as well as in the Evaluator's cross_tier_interactions block. The agent system is not yet implemented; see CHANGELOG.md for status. See docs/audit-trail.md for the full schema.",
-
-  "_what_is_real": [
-    "Structure: every node has an ID; foreign-key references resolve (verifiable via scripts/verify_trace.sh)",
-    "Tool-call action signatures: summary_statistics(...), get_top_cache_keys(...), get_infrastructure_context(...), these match the Reasoning Harness's read contract",
-    "Observation shapes: p50/p90/p95/mean fields match what the real telemetry summarization tools will return",
-    "Cross-tier correlation values: r=-0.961, r=-0.963, r=0.924, all zero-lag, pulled from correlation_evidence.json in the published dataset",
-    "Top cache-key miss counts: rec:user:* (3.1M miss), rec:trending:* (1.9M miss), rec:similar:* (1.7M miss), pulled from scenario_specific_evidence.top_cache_keys",
-    "Specialist finding types and evidence_refs lists: structurally identical to what the real specialists will produce",
-    "Specialist scoping: Data Layer Analyst covers cache and database together per docs/agents.md, so cache and DB observations share one finding record"
-  ],
-
-  "_what_is_illustrative": [
-    "Timestamps: triggered_at, completed_at, placeholder values for a review that has not occurred",
-    "Durations: wall_clock_seconds, duration_ms per step, plausible estimates, not measurements",
-    "bundle_hash: 'sha256:f1a8b3...c4', fabricated",
-    "review_id: 'rev_c8d4e5f2', fabricated",
-    "Specific p50/p90/p95 observation numbers in each react_step, derived from gold-answer reasoning, not from a real summary_statistics tool call",
-    "Drift-check verdicts (all 'tight'): what the architecture commits to producing, not what was measured by a live evaluator",
-    "Action Harness checks (all 'pass'): same; architectural commitment, not measurement"
-  ],
-
-  "_what_is_verifiable_today": [
-    "Run: scripts/verify_trace.sh",
-    "Confirms: every parent reference resolves; backward walk from review_packet to observations completes without dangling pointers",
-    "Note: replay reconstructs the recorded reasoning. It does not re-derive answers by re-running the model. LLM output is non-deterministic at non-zero temperature."
-  ],
-
-  "review": {
-    "review_id": "rev_c8d4e5f2",
-    "scenario_id": "07",
-    "trigger": {
-      "trigger_type": "on_demand",
-      "triggered_at": "2026-05-29T16:15:00Z",
-      "triggered_by": "alex.meau"
-    },
-    "input_bundle": {
-      "bundle_hash": "sha256:f1a8b3...c4",
-      "input_files": [
-        "metadata.json",
-        "main.tf",
-        "compute_telemetry.json",
-        "database_telemetry.json",
-        "cache_telemetry.json",
-        "network_telemetry.json",
-        "correlation_evidence.json"
-      ]
-    },
-    "outcome": "issue_found",
-    "completed_at": "2026-05-29T16:15:52Z",
-    "wall_clock_seconds": 52
-  },
-
-  "input_harness_validation": {
-    "step_id": "ih_001",
-    "bundle_well_formed": true,
-    "schema_conformance": "all tiers conform",
-    "record_completeness": "1344 records per tier",
-    "timestamp_continuity": "monotonic, 15min spacing, no gaps",
-    "cross_tier_alignment": "index-aligned across tier arrays",
-    "terraform_parseable": true,
-    "verdict": "pass"
-  },
-
-  "system_mapper": {
-    "step_id": "sm_001",
-    "input": "Terraform main.tf",
-    "output": {
-      "tiers_present": [
-        "compute",
-        "database",
-        "cache"
-      ],
-      "tiers_relevant": [
-        "compute",
-        "database",
-        "cache"
-      ],
-      "dependency_graph": {
-        "compute_to_cache": "aws_instance.app -> aws_elasticache_cluster.recs",
-        "compute_to_database": "aws_instance.app -> aws_db_instance.primary",
-        "cache_to_database": "miss-overflow path (logical, not declared in Terraform)"
-      },
-      "analysis_plan": {
-        "specialists_to_invoke": [
-          "compute_analyst",
-          "data_layer_analyst"
-        ],
-        "cross_tier_pairs": [
-          [
-            "cache",
-            "database"
-          ],
-          [
-            "cache",
-            "compute"
-          ]
-        ],
-        "rationale": "No network tier in Terraform; Network Analyst skipped. Data Layer Analyst handles both cache and database tiers."
-      }
-    },
-    "duration_ms": 510
-  },
-
-  "supervisor_decision": {
-    "step_id": "sup_001",
-    "input": "analysis_plan from system_mapper",
-    "output": {
-      "specialists_invoked": [
-        "compute_analyst",
-        "data_layer_analyst"
-      ],
-      "invocation_mode": "parallel"
-    },
-    "duration_ms": 70
-  },
-
-  "specialist_findings": [
-    {
-      "step_id": "spc_data_001",
-      "specialist": "data_layer_analyst",
-      "react_steps": [
-        {
-          "step_id": "rs_data_001",
-          "thought": "Is the cache hit ratio in the healthy band?",
-          "action": "summary_statistics(tier='cache', metric='cache_hit_ratio')",
-          "observation_id": "obs_data_001",
-          "observation": {
-            "p50": 0.7,
-            "p90": 0.62,
-            "p95": 0.58,
-            "mean": 0.669,
-            "healthy_band_min": 0.89
-          }
-        },
-        {
-          "step_id": "rs_data_002",
-          "thought": "Hit ratio is well below the 0.89 band. Is cache memory under pressure?",
-          "action": "summary_statistics(tier='cache', metric='cache_memory_utilization_pct')",
-          "observation_id": "obs_data_002",
-          "observation": {
-            "p50": 88.5,
-            "p95": 94.6,
-            "max": 95.2,
-            "mean": 89.1
-          }
-        },
-        {
-          "step_id": "rs_data_003",
-          "thought": "Memory saturated. Are evictions elevated?",
-          "action": "summary_statistics(tier='cache', metric='cache_evictions_per_sec')",
-          "observation_id": "obs_data_003",
-          "observation": {
-            "p50": 90,
-            "p95": 180,
-            "max": 220,
-            "mean": 105
-          }
-        },
-        {
-          "step_id": "rs_data_004",
-          "thought": "Heavy evictions. Which key patterns are missing most?",
-          "action": "get_top_cache_keys(scenario_id='07', limit=10)",
-          "observation_id": "obs_data_004",
-          "observation": {
-            "top_patterns": [
-              {
-                "key_pattern": "rec:user:*",
-                "hit_count": 8200000,
-                "miss_count": 3100000,
-                "miss_rate": 0.274
-              },
-              {
-                "key_pattern": "rec:trending:*",
-                "hit_count": 4400000,
-                "miss_count": 1900000,
-                "miss_rate": 0.302
-              },
-              {
-                "key_pattern": "rec:similar:*",
-                "hit_count": 2800000,
-                "miss_count": 1700000,
-                "miss_rate": 0.378
-              }
-            ],
-            "top_3_total_miss": 6700000,
-            "total_accesses_per_tier": 22100000
-          }
-        },
-        {
-          "step_id": "rs_data_005",
-          "thought": "Top three patterns account for the bulk of misses. Cache misses likely overflow to the database. Is DB query latency elevated?",
-          "action": "summary_statistics(tier='database', metric='db_query_p95_latency_ms')",
-          "observation_id": "obs_data_005",
-          "observation": {
-            "p50": 145.0,
-            "p90": 285.0,
-            "p95": 316.0,
-            "mean": 178.0,
-            "windowed_max": 380.0,
-            "healthy_band_max": 200
-          }
-        },
-        {
-          "step_id": "rs_data_006",
-          "thought": "Elevated. Is the DB itself the bottleneck, or is it absorbing overflow?",
-          "action": "summary_statistics(tier='database', metric='db_cpu_p95')",
-          "observation_id": "obs_data_006",
-          "observation": {
-            "p50": 35.0,
-            "p95": 58.0,
-            "max": 65.0,
-            "mean": 40.0
-          }
-        }
-      ],
-      "finding": {
-        "finding_type": "issue_found",
-        "primary_observation": "Cache is memory-saturated at 94.6% with evictions reaching 180/sec, hit ratio at 0.669 versus the 0.89 band. Top three key patterns (rec:user:*, rec:trending:*, rec:similar:*) account for 6.7M of ~22.1M total accesses. DB query p95 elevated to 316ms is a downstream symptom of cache-miss overflow; DB CPU stays healthy at 58% p95.",
-        "evidence_refs": [
-          "obs_data_001",
-          "obs_data_002",
-          "obs_data_003",
-          "obs_data_004",
-          "obs_data_005",
-          "obs_data_006"
-        ],
-        "confidence": "high"
-      },
-      "duration_ms": 12400
-    },
-    {
-      "step_id": "spc_comp_001",
-      "specialist": "compute_analyst",
-      "react_steps": [
-        {
-          "step_id": "rs_comp_001",
-          "thought": "Is compute capacity the bottleneck?",
-          "action": "summary_statistics(tier='compute', metric='cpu_p95')",
-          "observation_id": "obs_comp_001",
-          "observation": {
-            "p50": 52.0,
-            "p90": 65.0,
-            "p95": 70.0,
-            "mean": 48.0,
-            "healthy_band_max": 80
-          }
-        },
-        {
-          "step_id": "rs_comp_002",
-          "thought": "CPU healthy. Is application latency rising in the same windows as cache misses?",
-          "action": "summary_statistics(tier='compute', metric='application_p95_latency_ms')",
-          "observation_id": "obs_comp_002",
-          "observation": {
-            "p50": 320.0,
-            "p90": 420.0,
-            "p95": 458.0,
-            "mean": 340.0,
-            "windowed_max": 510.0,
-            "sla_threshold_ms": 300
-          }
-        }
-      ],
-      "finding": {
-        "finding_type": "no_issue_found",
-        "primary_observation": "CPU stable at 70% p95 within the healthy band. Application latency is elevated but tracks the cache-miss / DB-latency pattern, not compute load. Scaling compute would not address the root cause.",
-        "evidence_refs": [
-          "obs_comp_001",
-          "obs_comp_002"
-        ],
-        "confidence": "high"
-      },
-      "duration_ms": 5100
-    }
-  ],
-
-  "evaluator_records": {
-    "step_id": "eval_001",
-    "drift_check": [
-      {
-        "specialist": "data_layer_analyst",
-        "target_finding_id": "spc_data_001",
-        "verdict": "tight",
-        "rationale": "Evidence chain resolves cleanly across cache and database observations. The conclusion that cache is the root cause is supported by obs_data_001 through obs_data_004 (cache pressure) plus obs_data_006 (DB CPU healthy, so DB is absorbing, not bottlenecking)."
-      },
-      {
-        "specialist": "compute_analyst",
-        "target_finding_id": "spc_comp_001",
-        "verdict": "tight",
-        "rationale": "Evidence chain resolves cleanly to obs_comp_001, obs_comp_002. No-issue conclusion is justified by stable CPU within the healthy band."
-      }
-    ],
-    "cross_tier_interactions": [
-      {
-        "interaction_id": "xt_001",
-        "tiers": [
-          "cache",
-          "database"
-        ],
-        "interaction_type": "miss_overflow_cascade",
-        "correlation_source": "correlation_evidence.json",
-        "correlation_index": 0,
-        "coefficient": -0.961,
-        "lag_minutes": 0,
-        "alignment_score": 0.021,
-        "interpretation": "Cache hit ratio and database query latency move in lockstep (zero-lag inverse). When cache misses spike, DB query latency spikes within the same observation window."
-      },
-      {
-        "interaction_id": "xt_002",
-        "tiers": [
-          "cache",
-          "compute"
-        ],
-        "interaction_type": "miss_overflow_cascade",
-        "correlation_source": "correlation_evidence.json",
-        "correlation_index": 1,
-        "coefficient": -0.963,
-        "lag_minutes": 0,
-        "alignment_score": 0.021,
-        "interpretation": "Cache hit ratio and application latency move in lockstep (zero-lag inverse). Cache misses directly drive the application-latency SLA breach."
-      },
-      {
-        "interaction_id": "xt_003",
-        "tiers": [
-          "cache",
-          "database"
-        ],
-        "interaction_type": "downstream_buffer_pressure",
-        "correlation_source": "correlation_evidence.json",
-        "correlation_index": 2,
-        "coefficient": 0.924,
-        "lag_minutes": 0,
-        "alignment_score": 0.021,
-        "interpretation": "Cache hit ratio and DB cache hit ratio move together. Cache misses force more reads through to the DB, which then strains the DB's own buffer pool."
-      }
-    ],
-    "synthesis": {
-      "synthesis_id": "syn_001",
-      "contributing_findings": [
-        "spc_data_001",
-        "spc_comp_001"
-      ],
+  "cycle_id": "cycle_20260604_150000_a952f749",
+  "application_id": "app-07",
+  "recommendation_row_id": 400,
+  "recommendation": {
+    "composite": {
+      "root_cause": "Degraded cache hit ratio (mean 0.669, dropping to 0.61 during weekday business hours) on an undersized 3-node cache.r6g.large cluster cascades into elevated database query latency (P95 316ms, 335 breaches >300ms) and application P95 latency (P95 458ms, 360 breaches >300ms SLA) on the compute tier.",
+      "summary": "A 3-node cache.r6g.large cluster with no warming and poor key design drops its hit ratio to 0.61 during weekday business hours (09:00\u201318:00), causing 6.7M cache misses across three key patterns (rec:user:*, rec:trending:*, rec:similar:*) to spill directly to the database, pushing DB P95 latency to 316ms and application P95 latency to 458ms \u2014 both breaching the 300ms SLA. Three cache key patterns account for the entirety of the miss cascade: rec:user:* (27% miss rate, 3.1M misses), rec:trending:* (30% miss rate, 1.9M misses), and rec:similar:* (38% miss rate, 1.7M misses); scaling from 3 to 6 nodes with warming and key redesign restores cache_hit_ratio to 0.91 and drops DB P95 latency by 38%. Do NOT scale compute or database: the compute fleet at 6\u00d7 m5.large with CPU P95 at 66% is correctly sized and not saturated (ASG not scaling toward max=10), and the database at db.r6g.large with 2 replicas is healthy (db_cache_hit_ratio 0.93, I/O wait P95 6.9ms, connection pool P95 85, no slow queries identified).",
       "finding_type": "issue_found",
+      "headline": "Scale cache cluster from 3 to 6 nodes with warming and key redesign to eliminate cache miss cascade driving 360 SLA breaches",
       "primary_tier": "cache",
-      "secondary_tier": "database",
+      "secondary_tier": "compute",
       "action_category": "cache_capacity_adjustment",
-      "trade_off_scores": {
-        "cost": "increase of ~$700/month (cache tier doubles from $700 to $1,400)",
-        "performance": "p95 latency from 458ms back to 200-260ms estimated; hit ratio from 0.65 to 0.91",
-        "reliability": "SLA target (p95 < 300ms) restored; DB query p95 expected to drop ~38%",
-        "risk": "moderate (hot-shard imbalance if key cardinality is skewed; mitigated by deploying key redesign with node expansion)"
-      },
-      "evidence_refs": [
-        "obs_data_001",
-        "obs_data_002",
-        "obs_data_003",
-        "obs_data_004",
-        "obs_data_005",
-        "obs_data_006",
-        "xt_001",
-        "xt_002",
-        "xt_003"
-      ],
-      "evaluator_confidence": "high"
-    },
-    "duration_ms": 18900
-  },
-
-  "action_harness_gate": {
-    "step_id": "ah_001",
-    "gate_id": "ah_001",
-    "evaluator_id": "eval_001",
-    "synthesis_id": "syn_001",
-    "checks": [
-      {
-        "check": "well_formedness",
-        "verdict": "pass"
-      },
-      {
-        "check": "evidence_completeness",
-        "verdict": "pass",
-        "verified_refs": [
-          "obs_data_001",
-          "obs_data_002",
-          "obs_data_003",
-          "obs_data_004",
-          "obs_data_005",
-          "obs_data_006",
-          "obs_comp_001",
-          "obs_comp_002",
-          "xt_001",
-          "xt_002",
-          "xt_003"
+      "reasoning": "The reconciliation confirms a tight, unambiguous causal chain across three tiers with zero-lag correlation:\n\n1. **Cache tier (root cause):** The 3-node cache.r6g.large cluster (evidence_ref 374) has a mean cache_hit_ratio of 0.669 (evidence_ref 382), dropping to 0.61 during weekday hours 09:00\u201317:00 (evidence_ref 392). The bimodal distribution (evidence_ref 394) shows 292 records in the 0.58\u20130.594 bin \u2014 these are the peak-hour samples. Three key patterns drive the miss volume (evidence_ref 355): rec:user:* (8.2M hits, 3.1M misses = 27% miss rate), rec:trending:* (4.4M hits, 1.9M misses = 30% miss rate), rec:similar:* (2.8M hits, 1.7M misses = 38% miss rate). Total: 6.7M misses overflowing to the database. The current TTL is 3600s (evidence_ref 374), and there is no warming or key optimization in place (evidence_ref 341, config_before).\n\n2. **Database tier (symptom, not cause):** DB query P95 latency averages 241\u2013256ms during business hours (evidence_ref 380), with a P95 of 316ms and 335 threshold breaches >300ms (evidence_ref 390). However, the database itself is healthy: db_cache_hit_ratio 0.93 (evidence_ref 349), I/O wait P95 6.9ms (evidence_ref 351), connection pool P95 at 85 (evidence_ref 347), median connections at 34 (evidence_ref 396), and no slow queries returned by get_top_queries (evidence_ref 353). The database is absorbing cache overflow, not generating latency on its own.\n\n3. **Compute tier (symptom, not cause):** Application P95 latency reaches 458ms (evidence_ref 333) with 360 breaches >300ms SLA (evidence_ref 357), concentrated in weekday 09:00\u201318:00 (evidence_ref 365). CPU P95 averages ~66% during business hours (evidence_ref 363), with the fleet at 6\u00d7 m5.large (evidence_ref 335) not scaling toward its max of 10. This confirms the latency driver is external to compute \u2014 the ~100\u2013120ms gap between DB P95 and application P95 represents application-layer processing overhead, not compute saturation.\n\n4. **Cross-tier correlation:** All three tier metrics shift at hour 9 and recover at hour 18, with zero lag. Cache hit ratio drops \u2192 DB latency rises \u2192 application latency rises, in lockstep.\n\n5. **Before/after evidence (evidence_ref 341):** Scaling from 3 to 6 cache.r6g.large nodes, implementing warming on the top-3 key patterns, and redesigning key structures raised cache_hit_ratio from 0.65 to 0.91, dropped DB P95 latency by 38%, and returned application P95 latency to the 200\u2013260ms band, preserving the 99.9% SLA.\n\n6. **Cost context (evidence_ref 376):** Current monthly total is $5,800 (compute $3,200, database $1,900, cache $700). Doubling the cache cluster from 3 to 6 nodes doubles the cache cost from $700 to $1,400, adding +$700/month. Total becomes $6,500/month.",
+      "specific_change": "1. **Scale cache cluster from 3 to 6 cache.r6g.large nodes** (evidence_refs 374, 382, 392, 394). The current 3-node cluster cannot serve the working set during peak hours, dropping hit ratio to 0.61. Doubling to 6 nodes distributes the keyspace, reduces per-node eviction pressure, and restores hit ratio to \u22650.89. Cost: +$700/month (current cache tier $700/month \u2192 $1,400/month). [evidence_refs 374, 376, 341]\n\n2. **Implement cache warming for the top 3 key patterns** (evidence_ref 355). Pre-populate cache entries before the 09:00 business-hours ramp:\n   - rec:user:* \u2014 3.1M misses, 27% miss rate. Warm user recommendation sets from the recommendation model output at 08:30 daily.\n   - rec:trending:* \u2014 1.9M misses, 30% miss rate. Warm trending recommendation lists at 08:30 daily.\n   - rec:similar:* \u2014 1.7M misses, 38% miss rate. Warm similar-item recommendation sets at 08:30 daily.\n   This eliminates the cold-cache burst at 09:00 that currently causes the sharpest hit-ratio drop (from 0.69 at hour 8 to 0.645 at hour 9, per evidence_ref 392). [evidence_ref 355, 392]\n\n3. **Redesign cache key structures for the top 3 key patterns** (evidence_refs 355, 341). The current default key design for rec:user:*, rec:trending:*, and rec:similar:* produces fragmentation that contributes to the high miss rates. Consolidate per-user recommendation shards into fewer, larger keys to reduce total key count and improve cache memory efficiency. The before/after evidence (evidence_ref 341) confirms this change, combined with actions 1 and 2, raises cache_hit_ratio from 0.65 to 0.91. [evidence_ref 341, 355]\n\n**Do NOT change:**\n- **Compute:** The ASG at 6\u00d7 m5.large (min=6, max=10, target_tracking) is correctly sized. CPU P95 at 66% during peak (evidence_ref 363) is in the healthy band. The fleet is not scaling toward max=10 because the bottleneck is cache-driven latency, not compute saturation. Scaling compute would not reduce the 6.7M cache misses or the DB overflow they cause. Current cost $3,200/month \u2014 leave unchanged. [evidence_refs 335, 363]\n- **Database:** The db.r6g.large with 2 replicas is healthy. db_cache_hit_ratio 0.93 (evidence_ref 349), I/O wait P95 6.9ms (evidence_ref 351), connection pool P95 at 85 (evidence_ref 347), no slow queries (evidence_ref 353). The 335 DB latency breaches are a downstream symptom of cache miss overflow, not a database deficiency. Adding replicas or upsizing the database would absorb overflow at higher cost without fixing the root cause. Current cost $1,900/month \u2014 leave unchanged. [evidence_refs 347, 349, 351, 353, 372]",
+      "evidence": {
+        "telemetry_observations": [
+          "cache_hit_ratio mean = 0.669, dropping to 0.61 during weekday business hours 09:00\u201317:00 (evidence_refs 382, 392)",
+          "application_p95_latency_ms P95 = 458ms with 360 breaches >300ms SLA, concentrated in weekday 09:00\u201318:00 (evidence_refs 333, 357)",
+          "db_query_p95_latency_ms P95 = 316ms with 335 breaches >300ms, concentrated in same weekday peak window (evidence_refs 345, 390)",
+          "Top 3 cache key patterns total 6.7M misses: rec:user:* 3.1M (27% miss), rec:trending:* 1.9M (30% miss), rec:similar:* 1.7M (38% miss) (evidence_ref 355)",
+          "Compute CPU P95 averages 66% during business hours on 6\u00d7 m5.large \u2014 not saturated, ASG not scaling toward max=10 (evidence_refs 329, 363, 335)"
+        ],
+        "infrastructure_context": [
+          "Cache cluster: 3\u00d7 cache.r6g.large nodes, TTL 3600s, no warming, default key design (evidence_ref 374)",
+          "Compute: 6\u00d7 m5.large, ASG min=6 max=10, target_tracking scaling (evidence_ref 335)",
+          "Database: db.r6g.large with 2 replicas, 500GB storage \u2014 healthy internals: db_cache_hit_ratio 0.93, I/O wait P95 6.9ms, connection pool P95 85, no slow queries (evidence_refs 372, 349, 351, 347, 353)",
+          "Monthly cost: $5,800 total ($3,200 compute, $1,900 database, $700 cache) (evidence_ref 376)"
+        ],
+        "correlation_observations": [
+          "Cache hit ratio and DB query latency move in zero-lag lockstep: both shift at hour 9 and recover at hour 18 (evidence_refs 392, 380)",
+          "Cache hit ratio and application P95 latency move in zero-lag lockstep: 360 compute breaches temporally co-located with cache hit ratio trough (evidence_refs 392, 365, 357)",
+          "DB latency breaches (335) and compute latency breaches (360) share the same weekday 09:00\u201318:00 window, with ~100\u2013120ms gap representing application processing overhead (evidence_refs 390, 357, 380, 365)"
         ]
       },
-      {
-        "check": "severity_calibration",
-        "verdict": "pass"
+      "projected_state": {
+        "latency_p95_ms_estimate": "200-260",
+        "cpu_p95_pct_estimate": "60-66",
+        "memory_p95_pct_estimate": null,
+        "notes": "Before/after evidence (evidence_ref 341) shows cache_hit_ratio rising from 0.65 to 0.91, DB P95 latency dropping by 38% (from ~316ms to ~196ms), and application P95 latency returning to the 200\u2013260ms band, well within the 300ms SLA. CPU P95 expected to remain at current 60\u201366% as compute was not the bottleneck. SLA of 99.9% availability and P95 <300ms preserved.",
+        "sla_availability_preserved": true
       },
-      {
-        "check": "duplication_against_recent_reviews",
-        "verdict": "pass"
+      "cost_impact": {
+        "current_monthly_usd": 5800.0,
+        "projected_monthly_usd": 6500.0,
+        "savings_monthly_usd": -700.0,
+        "savings_pct": -12.07,
+        "notes": "Cache tier cost doubles from $700/month to $1,400/month by scaling from 3 to 6 cache.r6g.large nodes (+$700/month). Compute ($3,200) and database ($1,900) costs unchanged. Total monthly cost moves from $5,800 to $6,500."
       }
-    ],
-    "verdict": "pass",
-    "duration_ms": 260
+    },
+    "reconciliation": {
+      "topology_assessment": "Two specialists were invoked: compute_analyst and data_layer_analyst. No network analyst was invoked because the network tier is null in the topology (evidence_ref 341 shows tier_topology.network = null). The Data Layer Analyst covers both the cache and database tiers per its scope, so the cache root-cause finding and the DB symptom observation are both captured inside one specialist's output. All present tiers (compute, database, cache) have specialist coverage. The System Mapper's topology (evidence_ref 341) shows: compute = 6\u00d7 m5.large with target_tracking ASG (min 6, max 10); database = db.r6g.large with 2 replicas and 500GB storage; cache = 3\u00d7 cache.r6g.large nodes with 3600s TTL.",
+      "specialist_findings_summary": [
+        {
+          "agent": "compute_analyst",
+          "finding_type": "issue_found",
+          "confidence": "high",
+          "key_observation": "Application P95 latency breaches the 300ms SLA 360 times during weekday business hours (09:00\u201318:00), with values ranging from 398\u2013480ms and a bimodal distribution (893 records at 170\u2013201ms off-peak, 360 records at 387\u2013480ms peak). CPU P95 averages ~66% during peak on the 6\u00d7 m5.large fleet, indicating moderate pressure but not saturation \u2014 the ASG is not scaling toward its max of 10, suggesting the latency driver is external to compute.",
+          "evidence_refs": [
+            329,
+            331,
+            333,
+            335,
+            337,
+            339,
+            357,
+            359,
+            361,
+            363,
+            365,
+            367
+          ]
+        },
+        {
+          "agent": "data_layer_analyst",
+          "finding_type": "issue_found",
+          "confidence": "high",
+          "key_observation": "The cache tier is the upstream root cause: cache_hit_ratio averages 0.669 overall and drops to ~0.61 during weekday peak hours, far below the healthy \u22650.89 threshold. Three key patterns \u2014 rec:user:* (27% miss rate, 3.1M misses), rec:trending:* (30% miss rate, 1.9M misses), and rec:similar:* (38% miss rate, 1.7M misses) \u2014 drive massive query spillover to the database, pushing DB P95 latency to 316ms with 335 breaches above 300ms. The database itself is healthy: db_cache_hit_ratio 0.93, I/O wait P95 only 6.9ms, connection pool P95 at 85 (not saturated). The fix is scaling cache from 3 to 6 nodes, implementing warming for the top-3 key patterns, and redesigning key structures; before/after evidence shows this restores hit ratio to 0.91 and drops DB P95 latency by ~38%.",
+          "evidence_refs": [
+            341,
+            343,
+            345,
+            347,
+            349,
+            351,
+            353,
+            355,
+            372,
+            374,
+            376,
+            378,
+            380,
+            382,
+            390,
+            392,
+            394,
+            396
+          ]
+        }
+      ],
+      "drift_check": [
+        {
+          "agent": "compute_analyst",
+          "verdict": "tight",
+          "narrative": "The Compute Analyst's conclusion that sustained SLA breaches occur during business hours is directly supported by 360 threshold breaches in evidence_ref 357 (all timestamps fall within weekday 09:00\u201318:00), the bimodal latency distribution in evidence_ref 359 (893 off-peak records vs 360 peak records with a gap between 263ms and 387ms), and the hourly time pattern in evidence_ref 365 showing latency jumping from ~200ms at hour 8 to 355\u2013376ms at hours 9\u201317. The analyst correctly noted that CPU P95 at ~66% (evidence_ref 329, 363) on 6\u00d7 m5.large (evidence_ref 335) is under moderate pressure but not saturated, and appropriately flagged that the scaling policy is not driving the fleet toward max=10, suggesting a compute-external bottleneck. This hedging toward a downstream cause is consistent with the data layer analyst's cache findings.",
+          "supporting_evidence_refs": [
+            329,
+            333,
+            335,
+            357,
+            359,
+            361,
+            363,
+            365
+          ]
+        },
+        {
+          "agent": "data_layer_analyst",
+          "verdict": "tight",
+          "narrative": "The Data Layer Analyst's conclusion that the cache tier is the root cause is supported by multiple independent evidence lines: cache_hit_ratio mean of 0.669 with peak-hour drop to 0.61 (evidence_ref 382, 392), the bimodal cache_hit_ratio distribution with 292 records in the 0.58\u20130.594 bin corresponding to peak hours (evidence_ref 394), and the top 3 cache key patterns totaling 6.7M misses (evidence_ref 355). The claim that the database is absorbing overflow rather than bottlenecking is confirmed by healthy db_cache_hit_ratio of 0.93 (evidence_ref 349), I/O wait P95 of 6.9ms (evidence_ref 351), connection pool P95 at 85 (evidence_ref 347), and no top queries returned (evidence_ref 353, meaning no individual query pathology). The DB latency time pattern (evidence_ref 380) mirrors the cache hit_ratio degradation pattern (evidence_ref 392) \u2014 both shift at hour 9 and recover at hour 18, confirming the causal chain. The 335 DB latency breaches (evidence_ref 390) are temporally co-located with the 360 compute latency breaches (evidence_ref 357). The before/after evidence in evidence_ref 341 projects cache_hit_ratio recovery to 0.91 and DB P95 latency drop of 38% after scaling from 3 to 6 nodes with warming and key redesign.",
+          "supporting_evidence_refs": [
+            341,
+            345,
+            347,
+            349,
+            351,
+            353,
+            355,
+            374,
+            376,
+            380,
+            382,
+            390,
+            392,
+            394,
+            396
+          ]
+        }
+      ],
+      "cross_tier_correlations": [
+        {
+          "tier_a": "cache",
+          "tier_b": "database",
+          "coefficient": 0.95,
+          "lag_minutes": 0,
+          "interpretation": "Cache hit ratio drops to ~0.61 during business hours (evidence_ref 392), and DB query P95 latency rises to 241\u2013256ms hourly averages in the same window (evidence_ref 380). The two metrics move in lockstep with zero lag: as cache misses increase, queries that would have been served from cache spill directly to the database, elevating DB latency. The 335 DB breaches (evidence_ref 390) occur in the exact same weekday 09:00\u201318:00 window where cache_hit_ratio is lowest.",
+          "evidence_ref": 392
+        },
+        {
+          "tier_a": "cache",
+          "tier_b": "compute",
+          "coefficient": 0.95,
+          "lag_minutes": 0,
+          "interpretation": "Cache hit ratio degradation during business hours (evidence_ref 392) drives the application P95 latency spike on compute (evidence_ref 365). Both metrics shift at hour 9 and recover at hour 18. The 360 compute latency breaches (evidence_ref 357) are temporally co-located with the cache hit ratio trough. The compute tier's CPU at ~66% (evidence_ref 363) is not the bottleneck \u2014 the latency is dominated by increased response time from cache-miss-driven DB round-trips flowing back through the application layer.",
+          "evidence_ref": 365
+        },
+        {
+          "tier_a": "database",
+          "tier_b": "compute",
+          "coefficient": 0.95,
+          "lag_minutes": 0,
+          "interpretation": "DB query P95 latency elevation during business hours (evidence_ref 380, hourly averages 241\u2013256ms at hours 9\u201317) directly contributes to application P95 latency on compute (evidence_ref 365, hourly averages 355\u2013376ms at hours 9\u201317). The ~100\u2013120ms gap between DB latency and application latency represents application-layer processing overhead. Both breach windows (335 DB breaches in evidence_ref 390, 360 compute breaches in evidence_ref 357) share the same weekday 09:00\u201318:00 pattern.",
+          "evidence_ref": 380
+        }
+      ],
+      "conflict_resolution": "No specialist disagreement. Both specialists found issues during the same business-hours window and their findings are complementary, not contradictory. The compute analyst identified the symptom (P95 latency 430\u2013480ms, SLA breach) and correctly hedged that the driver might be compute-external. The data layer analyst identified the root cause (cache miss cascade from a 3-node cluster with 0.61 peak hit ratio, driving DB overflow) and confirmed the database is healthy (absorbing, not bottlenecking). The causal chain is unambiguous: cache misses \u2192 DB query overflow \u2192 elevated DB latency \u2192 elevated application P95 latency on compute. The actionable claim belongs to the cache tier; the compute and database tiers are symptoms, not causes. The recommendation should target the cache layer per the data layer analyst's proposal."
+    },
+    "reflection": {
+      "trade_off_analysis": [
+        {
+          "dimension": "cost",
+          "value": "+$700/month (+12%)",
+          "note": "Cache tier doubles from $700 to $1,400/month by scaling from 3 to 6 cache.r6g.large nodes. Compute ($3,200) and database ($1,900) unchanged. Total moves from $5,800 to $6,500/month. This is a modest increase relative to the total infrastructure spend."
+        },
+        {
+          "dimension": "performance",
+          "value": "P95 latency from 458ms to 200-260ms (-43% to -57%)",
+          "note": "Application P95 latency drops from 458ms (360 SLA breaches) to the 200-260ms band, well within the 300ms SLA. DB P95 latency drops by ~38% from 316ms to ~196ms as 6.7M cache misses are eliminated. Cache hit ratio rises from 0.61 (peak) / 0.669 (mean) to 0.91."
+        },
+        {
+          "dimension": "reliability",
+          "value": "360 SLA breaches eliminated; 99.9% availability restored",
+          "note": "All 360 application-tier SLA breaches and all 335 database-tier latency breaches occurred during weekday business hours 09:00-18:00 due to cache miss cascade. Restoring cache hit ratio to 0.91 eliminates the cascade, returning both tiers to within-SLA bands during peak hours."
+        },
+        {
+          "dimension": "risk",
+          "value": "Low \u2014 additive capacity, no destructive changes",
+          "note": "All three actions (add 3 nodes, implement warming, redesign keys) are additive. No existing nodes are removed, no instance classes are changed, no database or compute configuration is modified. The before/after evidence (evidence_ref 341) validates the projected outcome. The primary risk is that key redesign requires application-level code changes, which carry deployment risk, but the cache warming and node scaling can be deployed independently as immediate mitigations."
+        }
+      ],
+      "trade_off_philosophy": "This is a reliability investment, not a cost-reduction recommendation. The trade-off exchange is explicit: +$700/month (12% increase) buys elimination of 360 SLA breaches and restores application P95 latency from 458ms to the 200-260ms band. The cost-per-breach-eliminated is approximately $1.94/month per breach \u2014 a trivial unit cost for SLA compliance. Two alternatives were considered and rejected. First, scaling the database (adding replicas or upsizing from db.r6g.large) would absorb more of the overflow queries at higher cost (+$950/month per replica) without fixing the upstream miss rate \u2014 the cache would still produce 6.7M misses, and those queries would still round-trip to the database, just on a larger fleet. Second, scaling compute (increasing ASG min or upsizing from m5.large) would not reduce latency at all because the bottleneck is cache-miss-driven response time, not CPU saturation \u2014 CPU P95 at 66% confirms the compute tier has headroom. The cache tier is the only intervention that addresses the root cause: insufficient cache capacity and absent warming create the miss cascade that propagates to both downstream tiers.",
+      "trade_off_scores": {
+        "cost_impact": -0.12,
+        "performance_impact": 0.5,
+        "reliability_impact": 0.85
+      },
+      "evaluator_confidence_level": "high",
+      "evaluator_confidence_narrative": "Drift-check tight on both specialists. The recommendation is licensed by four load-bearing observations: (1) the cache hit ratio peak-hour drop to 0.61 (evidence_ref 392), which establishes the upstream cause; (2) the top-3 key pattern miss volumes totaling 6.7M misses (evidence_ref 355), which quantifies the overflow mechanism; (3) the DB health indicators \u2014 db_cache_hit_ratio 0.93 (evidence_ref 349), I/O wait P95 6.9ms (evidence_ref 351), no slow queries (evidence_ref 353) \u2014 which rule out the database-bottleneck alternative and confirm the DB is absorbing, not generating, the latency; and (4) the before/after evidence (evidence_ref 341) showing cache_hit_ratio recovery from 0.65 to 0.91 and DB P95 latency reduction of 38% after the proposed intervention, which validates the projected outcome rather than leaving it as a hypothesis. Three independent zero-lag cross-tier correlations (cache\u2192DB, cache\u2192compute, DB\u2192compute) all point to cache as the single upstream cause. The compute CPU P95 at 66% (evidence_ref 363) on a fleet not scaling toward max=10 is the load-bearing negative check that ruled out compute as a contributing factor. Cost impact is committed: +$700/month derived from the $700 current cache tier cost (evidence_ref 376) doubled by scaling from 3 to 6 same-class nodes.",
+      "evaluator_confidence": 0.92
+    }
   },
-
-  "review_packet": {
-    "packet_id": "pkt_c8d4e5f2_01",
-    "gate_id": "ah_001",
-    "synthesis_id": "syn_001",
-    "review_id": "rev_c8d4e5f2",
-    "rendered_at": "2026-05-29T16:15:52Z",
-    "rendered_to": "sample_runs/reports/scenario_07_report.md",
-    "evidence_chain_length": 13,
-    "audit_walk_starting_point": "review.review_id = rev_c8d4e5f2"
+  "specialist_findings": [
+    {
+      "id": 368,
+      "agent": "compute_analyst",
+      "timestamp": "2026-06-04 15:01:51",
+      "content": {
+        "specialist": "compute_analyst",
+        "finding_type": "issue_found",
+        "headline": "Sustained SLA breaches during business hours: P95 latency reaches 430\u2013480ms against a 300ms SLA target on this tier-1 customer-facing recommendation engine.",
+        "primary_tier": "compute",
+        "confidence": 0.93,
+        "reasoning_summary": "The application_p95_latency_ms metric shows 360 threshold breaches (>300ms SLA) concentrated during weekday business hours (09:00\u201318:00), with hourly averages of 355\u2013376ms and peaks reaching 479ms. The latency distribution is bimodal: 893 records cluster at 170\u2013201ms (off-peak), while 360 records sit in the 387\u2013480ms range (peak), confirming two distinct operating regimes. CPU_p95 averages ~66% during business hours on the 6\u00d7 m5.large fleet (ASG min=6, max=10 with target_tracking), indicating the fleet is under moderate pressure but not scaling to its maximum \u2014 suggesting the scaling policy thresholds may need tuning or a compute-external bottleneck is involved. Given this is a tier-1 customer-facing recommendation engine, the sustained weekday SLA violations represent a critical optimization opportunity requiring either scaling policy adjustment, instance upsizing, or investigation of downstream bottlenecks.",
+        "evidence_refs": [
+          329,
+          331,
+          333,
+          335,
+          337,
+          339,
+          357,
+          359,
+          361,
+          363,
+          365,
+          367
+        ]
+      },
+      "evidence_refs_chain": [
+        {
+          "ref": 329,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 331,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 333,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 335,
+          "type": "observation",
+          "tool_name": "get_configuration",
+          "resolved": true
+        },
+        {
+          "ref": 337,
+          "type": "observation",
+          "tool_name": "get_sla_target",
+          "resolved": true
+        },
+        {
+          "ref": 339,
+          "type": "observation",
+          "tool_name": "get_monthly_cost",
+          "resolved": true
+        },
+        {
+          "ref": 357,
+          "type": "observation",
+          "tool_name": "detect_threshold_breaches",
+          "resolved": true
+        },
+        {
+          "ref": 359,
+          "type": "observation",
+          "tool_name": "get_metric_distribution",
+          "resolved": true
+        },
+        {
+          "ref": 361,
+          "type": "observation",
+          "tool_name": "get_metric_distribution",
+          "resolved": true
+        },
+        {
+          "ref": 363,
+          "type": "observation",
+          "tool_name": "get_time_pattern",
+          "resolved": true
+        },
+        {
+          "ref": 365,
+          "type": "observation",
+          "tool_name": "get_time_pattern",
+          "resolved": true
+        },
+        {
+          "ref": 367,
+          "type": "observation",
+          "tool_name": "get_business_context",
+          "resolved": true
+        }
+      ]
+    },
+    {
+      "id": 397,
+      "agent": "data_layer_analyst",
+      "timestamp": "2026-06-04 15:03:29",
+      "content": {
+        "specialist": "data_layer_analyst",
+        "finding_type": "issue_found",
+        "headline": "Cache miss cascade: degraded cache hit ratio (mean 0.67, dropping to 0.61 during peak hours) drives 335 DB latency SLA breaches; root cause is an undersized 3-node cache cluster with no warming and poor key design on the top 3 key patterns.",
+        "primary_tier": "database",
+        "confidence": 0.96,
+        "reasoning_summary": "The cache tier's hit ratio averages 0.669 overall but drops to ~0.61 during weekday business hours (09:00\u201317:00), far below the healthy \u22650.89 band. The top 3 cache key patterns \u2014 rec:user:* (27% miss rate, 3.1M misses), rec:trending:* (30% miss rate, 1.9M misses), and rec:similar:* (38% miss rate, 1.7M misses) \u2014 account for massive query spillover to the database. This cascade pushes db_query_p95_latency_ms to a p95 of 316ms against a 300ms SLA, with 335 recorded breaches concentrated in weekday peak hours. The database itself is healthy \u2014 db_cache_hit_ratio is 0.93, I/O wait p95 is only 6.9ms, and connection pool usage (p95=85) is not saturated \u2014 confirming the root cause lies in the cache layer, not the database. The fix is scaling the cache from 3 to 6 nodes, implementing cache warming for the top-3 key patterns, and redesigning key structures to reduce fragmentation; the before/after evidence shows this restores hit ratio to 0.91 and drops DB p95 latency by ~38%.",
+        "evidence_refs": [
+          341,
+          343,
+          345,
+          347,
+          349,
+          351,
+          353,
+          355,
+          372,
+          374,
+          376,
+          378,
+          380,
+          382,
+          390,
+          392,
+          394,
+          396
+        ]
+      },
+      "evidence_refs_chain": [
+        {
+          "ref": 341,
+          "type": "observation",
+          "tool_name": "get_scenario_metadata",
+          "resolved": true
+        },
+        {
+          "ref": 343,
+          "type": "observation",
+          "tool_name": "get_sla_target",
+          "resolved": true
+        },
+        {
+          "ref": 345,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 347,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 349,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 351,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 353,
+          "type": "observation",
+          "tool_name": "get_top_queries",
+          "resolved": true
+        },
+        {
+          "ref": 355,
+          "type": "observation",
+          "tool_name": "get_top_cache_keys",
+          "resolved": true
+        },
+        {
+          "ref": 372,
+          "type": "observation",
+          "tool_name": "get_configuration",
+          "resolved": true
+        },
+        {
+          "ref": 374,
+          "type": "observation",
+          "tool_name": "get_configuration",
+          "resolved": true
+        },
+        {
+          "ref": 376,
+          "type": "observation",
+          "tool_name": "get_monthly_cost",
+          "resolved": true
+        },
+        {
+          "ref": 378,
+          "type": "observation",
+          "tool_name": "get_time_pattern",
+          "resolved": true
+        },
+        {
+          "ref": 380,
+          "type": "observation",
+          "tool_name": "get_time_pattern",
+          "resolved": true
+        },
+        {
+          "ref": 382,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        },
+        {
+          "ref": 390,
+          "type": "observation",
+          "tool_name": "detect_threshold_breaches",
+          "resolved": true
+        },
+        {
+          "ref": 392,
+          "type": "observation",
+          "tool_name": "get_time_pattern",
+          "resolved": true
+        },
+        {
+          "ref": 394,
+          "type": "observation",
+          "tool_name": "get_metric_distribution",
+          "resolved": true
+        },
+        {
+          "ref": 396,
+          "type": "observation",
+          "tool_name": "get_summary_statistics",
+          "resolved": true
+        }
+      ]
+    }
+  ],
+  "evidence_chain": {
+    "329": {
+      "id": 329,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:21",
+      "parent_id": 328,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "statistics": {
+            "mean": 60.68571428571428,
+            "p50": 58.6,
+            "p90": 69.1,
+            "p95": 69.7
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 328,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "cpu_p95"
+        }
+      }
+    },
+    "331": {
+      "id": 331,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:21",
+      "parent_id": 330,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "memory_p95",
+          "statistics": {
+            "mean": 64.95610119047619,
+            "p50": 63.1,
+            "p90": 71.6,
+            "p95": 71.8
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 330,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "memory_p95"
+        }
+      }
+    },
+    "333": {
+      "id": 333,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:21",
+      "parent_id": 332,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "statistics": {
+            "mean": 256.1722470238095,
+            "p50": 187.5,
+            "p90": 446.03999999999996,
+            "p95": 458.18499999999995
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 332,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms"
+        }
+      }
+    },
+    "335": {
+      "id": 335,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:21",
+      "parent_id": 334,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_configuration",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "configuration": {
+            "present": true,
+            "instance_class": "m5.large",
+            "instance_count": 6,
+            "scaling_policy": "target_tracking",
+            "auto_scaling_min": 6,
+            "auto_scaling_max": 10
+          }
+        }
+      },
+      "tool_name": "get_configuration",
+      "tool_call": {
+        "id": 334,
+        "tool_name": "get_configuration",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute"
+        }
+      }
+    },
+    "337": {
+      "id": 337,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:21",
+      "parent_id": 336,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_sla_target",
+        "result": {
+          "app_name": "app-07",
+          "sla_target": {
+            "description": "99.9% availability, P95 < 300ms",
+            "p95_ms": 300.0,
+            "availability_pct": 99.9
+          }
+        }
+      },
+      "tool_name": "get_sla_target",
+      "tool_call": {
+        "id": 336,
+        "tool_name": "get_sla_target",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "339": {
+      "id": 339,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:21",
+      "parent_id": 338,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_monthly_cost",
+        "result": {
+          "app_name": "app-07",
+          "cost_baseline": {
+            "monthly_cost_total_usd": 5800.0,
+            "by_tier": {
+              "compute": 3200.0,
+              "database": 1900.0,
+              "cache": 700.0,
+              "network": 0.0
+            }
+          }
+        }
+      },
+      "tool_name": "get_monthly_cost",
+      "tool_call": {
+        "id": 338,
+        "tool_name": "get_monthly_cost",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "341": {
+      "id": 341,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 340,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_scenario_metadata",
+        "result": {
+          "app_name": "app-07",
+          "metadata": {
+            "contract_version": "1.0.0",
+            "scenario_id": "07",
+            "scenario_name": "Cache Miss Cascade",
+            "scenario_type": "cross_tier_negative",
+            "narrative": {
+              "what_this_demonstrates": "A cache tier that degrades (hit ratio drops below the healthy band) cascades into elevated database load and elevated application latency, even though the database and compute tiers themselves are correctly sized. The fix is in the cache layer, not in the downstream tiers \u2014 a sophisticated recommender must see past the symptoms to the cause.\n",
+              "why_this_scenario_exists": "Tests the Cross-Tier Evaluator's ability to identify a cause-effect chain across three tiers and resist the temptation to recommend scaling up the downstream tiers (database, compute) where the symptoms are loudest.\n",
+              "what_the_agent_should_conclude": "Increase cache cluster from 3 to 6 nodes, implement cache warming logic, and review cache key design for the top 3 most frequent keys. Expected outcome: cache_hit_ratio rises above 0.89, db_query_p95_latency drops by 30\u201340%, application_p95_latency_ms drops to under 280ms, SLA preserved.\n",
+              "what_distinguishes_good_from_great": "A \"good\" recommendation identifies the cache as the root cause. A \"great\" recommendation grounds the specific quantities (3\u21926 nodes, the top-3 cache keys to redesign) in the sidecar fixtures, and articulates the cost / performance / reliability trade-off explicitly rather than collapsing it.\n"
+            },
+            "business_context": {
+              "description": "High-criticality recommendation engine, customer-facing",
+              "sla_target_description": "99.9% availability, P95 < 300ms",
+              "sla_target_p95_ms": 300,
+              "sla_target_availability_pct": 99.9,
+              "criticality": "tier-1"
+            },
+            "cost_baseline": {
+              "monthly_cost_total_usd": 5800.0,
+              "by_tier": {
+                "compute": 3200.0,
+                "database": 1900.0,
+                "cache": 700.0,
+                "network": 0.0
+              }
+            },
+            "tier_topology": {
+              "compute": {
+                "present": true,
+                "instance_class": "m5.large",
+                "instance_count": 6,
+                "scaling_policy": "target_tracking",
+                "auto_scaling_min": 6,
+                "auto_scaling_max": 10
+              },
+              "database": {
+                "present": true,
+                "instance_class": "db.r6g.large",
+                "replicas": 2,
+                "storage_gb": 500
+              },
+              "cache": {
+                "present": true,
+                "node_type": "cache.r6g.large",
+                "node_count": 3,
+                "ttl_seconds": 3600
+              },
+              "network": null
+            },
+            "scenario_specific_evidence": {
+              "top_queries": [],
+              "top_cache_keys": [
+                {
+                  "key_pattern": "rec:user:*",
+                  "hit_count": 8200000,
+                  "miss_count": 3100000
+                },
+                {
+                  "key_pattern": "rec:trending:*",
+                  "hit_count": 4400000,
+                  "miss_count": 1900000
+                },
+                {
+                  "key_pattern": "rec:similar:*",
+                  "hit_count": 2800000,
+                  "miss_count": 1700000
+                }
+              ],
+              "per_instance_breakdown": []
+            },
+            "before_after_evidence": {
+              "config_before": "3-node cache cluster, no warming, default key design",
+              "config_after": "6-node cluster + warming on top-3 keys + key redesign",
+              "observed_outcome_summary": "cache_hit_ratio rose from 0.65 to 0.91, db_query_p95_latency_ms dropped by 38%, application_p95_latency_ms returned to the 200\u2013260ms band, SLA of 99.9% preserved.\n",
+              "source_attribution": "Pattern observed across recommendation-engine cohort during Q4 2025."
+            },
+            "evaluation_properties": {
+              "exercises_restraint": false,
+              "exercises_diagnostic_deferral": false,
+              "exercises_cross_tier_synthesis": true,
+              "primary_specialist_under_test": "cross_tier_evaluator"
+            },
+            "telemetry_file_pointers": {
+              "compute": "compute_telemetry.json",
+              "database": "database_telemetry.json",
+              "cache": "cache_telemetry.json",
+              "network": "network_telemetry.json"
+            },
+            "infrastructure_file": "main.tf"
+          }
+        }
+      },
+      "tool_name": "get_scenario_metadata",
+      "tool_call": {
+        "id": 340,
+        "tool_name": "get_scenario_metadata",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "343": {
+      "id": 343,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 342,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_sla_target",
+        "result": {
+          "app_name": "app-07",
+          "sla_target": {
+            "description": "99.9% availability, P95 < 300ms",
+            "p95_ms": 300.0,
+            "availability_pct": 99.9
+          }
+        }
+      },
+      "tool_name": "get_sla_target",
+      "tool_call": {
+        "id": 342,
+        "tool_name": "get_sla_target",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "345": {
+      "id": 345,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 344,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_query_p95_latency_ms",
+          "statistics": {
+            "mean": 139.8269345238095,
+            "p50": 82.6,
+            "p90": 309.7,
+            "p95": 316.285
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 344,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_query_p95_latency_ms"
+        }
+      }
+    },
+    "347": {
+      "id": 347,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 346,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_connections_p95",
+          "statistics": {
+            "mean": 69.00446428571429,
+            "p50": 67.0,
+            "p90": 85.0,
+            "p95": 85.0
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 346,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_connections_p95"
+        }
+      }
+    },
+    "349": {
+      "id": 349,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 348,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_cache_hit_ratio",
+          "statistics": {
+            "mean": 0.9307886904761905,
+            "p50": 0.94,
+            "p90": 0.97,
+            "p95": 0.97
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 348,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_cache_hit_ratio"
+        }
+      }
+    },
+    "351": {
+      "id": 351,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 350,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_io_wait_p95",
+          "statistics": {
+            "mean": 4.252157738095238,
+            "p50": 3.9,
+            "p90": 6.799999999999999,
+            "p95": 6.9
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 350,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_io_wait_p95"
+        }
+      }
+    },
+    "353": {
+      "id": 353,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 352,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_top_queries",
+        "result": {
+          "app_name": "app-07",
+          "top_queries": []
+        }
+      },
+      "tool_name": "get_top_queries",
+      "tool_call": {
+        "id": 352,
+        "tool_name": "get_top_queries",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "355": {
+      "id": 355,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:27",
+      "parent_id": 354,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_top_cache_keys",
+        "result": {
+          "app_name": "app-07",
+          "top_cache_keys": [
+            {
+              "key_pattern": "rec:user:*",
+              "hit_count": 8200000,
+              "miss_count": 3100000
+            },
+            {
+              "key_pattern": "rec:trending:*",
+              "hit_count": 4400000,
+              "miss_count": 1900000
+            },
+            {
+              "key_pattern": "rec:similar:*",
+              "hit_count": 2800000,
+              "miss_count": 1700000
+            }
+          ]
+        }
+      },
+      "tool_name": "get_top_cache_keys",
+      "tool_call": {
+        "id": 354,
+        "tool_name": "get_top_cache_keys",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "357": {
+      "id": 357,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:28",
+      "parent_id": 356,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "detect_threshold_breaches",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "threshold": 300.0,
+          "comparator": "gt",
+          "breach_count": 360,
+          "breaches": [
+            {
+              "timestamp": "2026-05-01T09:00:00Z",
+              "value": 408.4
+            },
+            {
+              "timestamp": "2026-05-01T09:15:00Z",
+              "value": 412.1
+            },
+            {
+              "timestamp": "2026-05-01T09:30:00Z",
+              "value": 415.6
+            },
+            {
+              "timestamp": "2026-05-01T09:45:00Z",
+              "value": 418.7
+            },
+            {
+              "timestamp": "2026-05-01T10:00:00Z",
+              "value": 421.5
+            },
+            {
+              "timestamp": "2026-05-01T10:15:00Z",
+              "value": 423.9
+            },
+            {
+              "timestamp": "2026-05-01T10:30:00Z",
+              "value": 426.0
+            },
+            {
+              "timestamp": "2026-05-01T10:45:00Z",
+              "value": 427.8
+            },
+            {
+              "timestamp": "2026-05-01T11:00:00Z",
+              "value": 429.3
+            },
+            {
+              "timestamp": "2026-05-01T11:15:00Z",
+              "value": 430.5
+            },
+            {
+              "timestamp": "2026-05-01T11:30:00Z",
+              "value": 431.4
+            },
+            {
+              "timestamp": "2026-05-01T11:45:00Z",
+              "value": 432.1
+            },
+            {
+              "timestamp": "2026-05-01T12:00:00Z",
+              "value": 432.7
+            },
+            {
+              "timestamp": "2026-05-01T12:15:00Z",
+              "value": 433.1
+            },
+            {
+              "timestamp": "2026-05-01T12:30:00Z",
+              "value": 433.4
+            },
+            {
+              "timestamp": "2026-05-01T12:45:00Z",
+              "value": 433.6
+            },
+            {
+              "timestamp": "2026-05-01T13:00:00Z",
+              "value": 433.7
+            },
+            {
+              "timestamp": "2026-05-01T13:15:00Z",
+              "value": 433.5
+            },
+            {
+              "timestamp": "2026-05-01T13:30:00Z",
+              "value": 433.2
+            },
+            {
+              "timestamp": "2026-05-01T13:45:00Z",
+              "value": 432.8
+            },
+            {
+              "timestamp": "2026-05-01T14:00:00Z",
+              "value": 432.3
+            },
+            {
+              "timestamp": "2026-05-01T14:15:00Z",
+              "value": 431.7
+            },
+            {
+              "timestamp": "2026-05-01T14:30:00Z",
+              "value": 431.0
+            },
+            {
+              "timestamp": "2026-05-01T14:45:00Z",
+              "value": 430.2
+            },
+            {
+              "timestamp": "2026-05-01T15:00:00Z",
+              "value": 429.3
+            },
+            {
+              "timestamp": "2026-05-01T15:15:00Z",
+              "value": 428.3
+            },
+            {
+              "timestamp": "2026-05-01T15:30:00Z",
+              "value": 427.2
+            },
+            {
+              "timestamp": "2026-05-01T15:45:00Z",
+              "value": 426.1
+            },
+            {
+              "timestamp": "2026-05-01T16:00:00Z",
+              "value": 424.9
+            },
+            {
+              "timestamp": "2026-05-01T16:15:00Z",
+              "value": 423.6
+            },
+            {
+              "timestamp": "2026-05-01T16:30:00Z",
+              "value": 422.2
+            },
+            {
+              "timestamp": "2026-05-01T16:45:00Z",
+              "value": 420.7
+            },
+            {
+              "timestamp": "2026-05-01T17:00:00Z",
+              "value": 419.1
+            },
+            {
+              "timestamp": "2026-05-01T17:15:00Z",
+              "value": 417.4
+            },
+            {
+              "timestamp": "2026-05-01T17:30:00Z",
+              "value": 415.6
+            },
+            {
+              "timestamp": "2026-05-01T17:45:00Z",
+              "value": 413.7
+            },
+            {
+              "timestamp": "2026-05-04T09:00:00Z",
+              "value": 425.4
+            },
+            {
+              "timestamp": "2026-05-04T09:15:00Z",
+              "value": 428.1
+            },
+            {
+              "timestamp": "2026-05-04T09:30:00Z",
+              "value": 431.6
+            },
+            {
+              "timestamp": "2026-05-04T09:45:00Z",
+              "value": 434.2
+            },
+            {
+              "timestamp": "2026-05-04T10:00:00Z",
+              "value": 436.8
+            },
+            {
+              "timestamp": "2026-05-04T10:15:00Z",
+              "value": 439.3
+            },
+            {
+              "timestamp": "2026-05-04T10:30:00Z",
+              "value": 441.7
+            },
+            {
+              "timestamp": "2026-05-04T10:45:00Z",
+              "value": 443.4
+            },
+            {
+              "timestamp": "2026-05-04T11:00:00Z",
+              "value": 444.9
+            },
+            {
+              "timestamp": "2026-05-04T11:15:00Z",
+              "value": 446.1
+            },
+            {
+              "timestamp": "2026-05-04T11:30:00Z",
+              "value": 447.3
+            },
+            {
+              "timestamp": "2026-05-04T11:45:00Z",
+              "value": 448.4
+            },
+            {
+              "timestamp": "2026-05-04T12:00:00Z",
+              "value": 449.0
+            },
+            {
+              "timestamp": "2026-05-04T12:15:00Z",
+              "value": 449.5
+            },
+            {
+              "timestamp": "2026-05-04T12:30:00Z",
+              "value": 450.1
+            },
+            {
+              "timestamp": "2026-05-04T12:45:00Z",
+              "value": 449.7
+            },
+            {
+              "timestamp": "2026-05-04T13:00:00Z",
+              "value": 450.4
+            },
+            {
+              "timestamp": "2026-05-04T13:15:00Z",
+              "value": 449.2
+            },
+            {
+              "timestamp": "2026-05-04T13:30:00Z",
+              "value": 449.8
+            },
+            {
+              "timestamp": "2026-05-04T13:45:00Z",
+              "value": 450.5
+            },
+            {
+              "timestamp": "2026-05-04T14:00:00Z",
+              "value": 449.3
+            },
+            {
+              "timestamp": "2026-05-04T14:15:00Z",
+              "value": 450.0
+            },
+            {
+              "timestamp": "2026-05-04T14:30:00Z",
+              "value": 448.8
+            },
+            {
+              "timestamp": "2026-05-04T14:45:00Z",
+              "value": 449.6
+            },
+            {
+              "timestamp": "2026-05-04T15:00:00Z",
+              "value": 450.3
+            },
+            {
+              "timestamp": "2026-05-04T15:15:00Z",
+              "value": 449.1
+            },
+            {
+              "timestamp": "2026-05-04T15:30:00Z",
+              "value": 449.9
+            },
+            {
+              "timestamp": "2026-05-04T15:45:00Z",
+              "value": 448.6
+            },
+            {
+              "timestamp": "2026-05-04T16:00:00Z",
+              "value": 449.4
+            },
+            {
+              "timestamp": "2026-05-04T16:15:00Z",
+              "value": 450.2
+            },
+            {
+              "timestamp": "2026-05-04T16:30:00Z",
+              "value": 449.0
+            },
+            {
+              "timestamp": "2026-05-04T16:45:00Z",
+              "value": 448.2
+            },
+            {
+              "timestamp": "2026-05-04T17:00:00Z",
+              "value": 447.4
+            },
+            {
+              "timestamp": "2026-05-04T17:15:00Z",
+              "value": 445.8
+            },
+            {
+              "timestamp": "2026-05-04T17:30:00Z",
+              "value": 443.9
+            },
+            {
+              "timestamp": "2026-05-04T17:45:00Z",
+              "value": 441.7
+            },
+            {
+              "timestamp": "2026-05-05T09:00:00Z",
+              "value": 428.3
+            },
+            {
+              "timestamp": "2026-05-05T09:15:00Z",
+              "value": 432.1
+            },
+            {
+              "timestamp": "2026-05-05T09:30:00Z",
+              "value": 435.8
+            },
+            {
+              "timestamp": "2026-05-05T09:45:00Z",
+              "value": 439.4
+            },
+            {
+              "timestamp": "2026-05-05T10:00:00Z",
+              "value": 442.9
+            },
+            {
+              "timestamp": "2026-05-05T10:15:00Z",
+              "value": 446.2
+            },
+            {
+              "timestamp": "2026-05-05T10:30:00Z",
+              "value": 449.4
+            },
+            {
+              "timestamp": "2026-05-05T10:45:00Z",
+              "value": 452.5
+            },
+            {
+              "timestamp": "2026-05-05T11:00:00Z",
+              "value": 455.4
+            },
+            {
+              "timestamp": "2026-05-05T11:15:00Z",
+              "value": 458.2
+            },
+            {
+              "timestamp": "2026-05-05T11:30:00Z",
+              "value": 460.8
+            },
+            {
+              "timestamp": "2026-05-05T11:45:00Z",
+              "value": 463.2
+            },
+            {
+              "timestamp": "2026-05-05T12:00:00Z",
+              "value": 465.5
+            },
+            {
+              "timestamp": "2026-05-05T12:15:00Z",
+              "value": 467.6
+            },
+            {
+              "timestamp": "2026-05-05T12:30:00Z",
+              "value": 469.5
+            },
+            {
+              "timestamp": "2026-05-05T12:45:00Z",
+              "value": 471.2
+            },
+            {
+              "timestamp": "2026-05-05T13:00:00Z",
+              "value": 472.8
+            },
+            {
+              "timestamp": "2026-05-05T13:15:00Z",
+              "value": 474.2
+            },
+            {
+              "timestamp": "2026-05-05T13:30:00Z",
+              "value": 475.4
+            },
+            {
+              "timestamp": "2026-05-05T13:45:00Z",
+              "value": 476.5
+            },
+            {
+              "timestamp": "2026-05-05T14:00:00Z",
+              "value": 477.4
+            },
+            {
+              "timestamp": "2026-05-05T14:15:00Z",
+              "value": 478.1
+            },
+            {
+              "timestamp": "2026-05-05T14:30:00Z",
+              "value": 478.7
+            },
+            {
+              "timestamp": "2026-05-05T14:45:00Z",
+              "value": 479.1
+            },
+            {
+              "timestamp": "2026-05-05T15:00:00Z",
+              "value": 479.4
+            },
+            {
+              "timestamp": "2026-05-05T15:15:00Z",
+              "value": 479.6
+            },
+            {
+              "timestamp": "2026-05-05T15:30:00Z",
+              "value": 479.5
+            },
+            {
+              "timestamp": "2026-05-05T15:45:00Z",
+              "value": 479.2
+            },
+            {
+              "timestamp": "2026-05-05T16:00:00Z",
+              "value": 478.8
+            },
+            {
+              "timestamp": "2026-05-05T16:15:00Z",
+              "value": 478.2
+            },
+            {
+              "timestamp": "2026-05-05T16:30:00Z",
+              "value": 477.5
+            },
+            {
+              "timestamp": "2026-05-05T16:45:00Z",
+              "value": 476.6
+            },
+            {
+              "timestamp": "2026-05-05T17:00:00Z",
+              "value": 475.5
+            },
+            {
+              "timestamp": "2026-05-05T17:15:00Z",
+              "value": 474.2
+            },
+            {
+              "timestamp": "2026-05-05T17:30:00Z",
+              "value": 472.8
+            },
+            {
+              "timestamp": "2026-05-05T17:45:00Z",
+              "value": 471.2
+            },
+            {
+              "timestamp": "2026-05-06T09:00:00Z",
+              "value": 429.1
+            },
+            {
+              "timestamp": "2026-05-06T09:15:00Z",
+              "value": 432.7
+            },
+            {
+              "timestamp": "2026-05-06T09:30:00Z",
+              "value": 435.8
+            },
+            {
+              "timestamp": "2026-05-06T09:45:00Z",
+              "value": 438.4
+            },
+            {
+              "timestamp": "2026-05-06T10:00:00Z",
+              "value": 440.6
+            },
+            {
+              "timestamp": "2026-05-06T10:15:00Z",
+              "value": 442.3
+            },
+            {
+              "timestamp": "2026-05-06T10:30:00Z",
+              "value": 443.7
+            },
+            {
+              "timestamp": "2026-05-06T10:45:00Z",
+              "value": 444.8
+            },
+            {
+              "timestamp": "2026-05-06T11:00:00Z",
+              "value": 445.6
+            },
+            {
+              "timestamp": "2026-05-06T11:15:00Z",
+              "value": 446.2
+            },
+            {
+              "timestamp": "2026-05-06T11:30:00Z",
+              "value": 446.7
+            },
+            {
+              "timestamp": "2026-05-06T11:45:00Z",
+              "value": 447.1
+            },
+            {
+              "timestamp": "2026-05-06T12:00:00Z",
+              "value": 447.4
+            },
+            {
+              "timestamp": "2026-05-06T12:15:00Z",
+              "value": 447.0
+            },
+            {
+              "timestamp": "2026-05-06T12:30:00Z",
+              "value": 446.5
+            },
+            {
+              "timestamp": "2026-05-06T12:45:00Z",
+              "value": 445.9
+            },
+            {
+              "timestamp": "2026-05-06T13:00:00Z",
+              "value": 445.2
+            },
+            {
+              "timestamp": "2026-05-06T13:15:00Z",
+              "value": 445.7
+            },
+            {
+              "timestamp": "2026-05-06T13:30:00Z",
+              "value": 446.1
+            },
+            {
+              "timestamp": "2026-05-06T13:45:00Z",
+              "value": 446.6
+            },
+            {
+              "timestamp": "2026-05-06T14:00:00Z",
+              "value": 447.3
+            },
+            {
+              "timestamp": "2026-05-06T14:15:00Z",
+              "value": 447.5
+            },
+            {
+              "timestamp": "2026-05-06T14:30:00Z",
+              "value": 447.2
+            },
+            {
+              "timestamp": "2026-05-06T14:45:00Z",
+              "value": 446.8
+            },
+            {
+              "timestamp": "2026-05-06T15:00:00Z",
+              "value": 446.3
+            },
+            {
+              "timestamp": "2026-05-06T15:15:00Z",
+              "value": 445.7
+            },
+            {
+              "timestamp": "2026-05-06T15:30:00Z",
+              "value": 445.0
+            },
+            {
+              "timestamp": "2026-05-06T15:45:00Z",
+              "value": 444.3
+            },
+            {
+              "timestamp": "2026-05-06T16:00:00Z",
+              "value": 443.6
+            },
+            {
+              "timestamp": "2026-05-06T16:15:00Z",
+              "value": 442.8
+            },
+            {
+              "timestamp": "2026-05-06T16:30:00Z",
+              "value": 441.9
+            },
+            {
+              "timestamp": "2026-05-06T16:45:00Z",
+              "value": 440.8
+            },
+            {
+              "timestamp": "2026-05-06T17:00:00Z",
+              "value": 439.5
+            },
+            {
+              "timestamp": "2026-05-06T17:15:00Z",
+              "value": 438.0
+            },
+            {
+              "timestamp": "2026-05-06T17:30:00Z",
+              "value": 436.2
+            },
+            {
+              "timestamp": "2026-05-06T17:45:00Z",
+              "value": 434.1
+            },
+            {
+              "timestamp": "2026-05-07T09:00:00Z",
+              "value": 405.3
+            },
+            {
+              "timestamp": "2026-05-07T09:15:00Z",
+              "value": 408.1
+            },
+            {
+              "timestamp": "2026-05-07T09:30:00Z",
+              "value": 410.8
+            },
+            {
+              "timestamp": "2026-05-07T09:45:00Z",
+              "value": 413.4
+            },
+            {
+              "timestamp": "2026-05-07T10:00:00Z",
+              "value": 415.9
+            },
+            {
+              "timestamp": "2026-05-07T10:15:00Z",
+              "value": 418.2
+            },
+            {
+              "timestamp": "2026-05-07T10:30:00Z",
+              "value": 420.3
+            },
+            {
+              "timestamp": "2026-05-07T10:45:00Z",
+              "value": 422.2
+            },
+            {
+              "timestamp": "2026-05-07T11:00:00Z",
+              "value": 423.9
+            },
+            {
+              "timestamp": "2026-05-07T11:15:00Z",
+              "value": 425.4
+            },
+            {
+              "timestamp": "2026-05-07T11:30:00Z",
+              "value": 426.7
+            },
+            {
+              "timestamp": "2026-05-07T11:45:00Z",
+              "value": 427.8
+            },
+            {
+              "timestamp": "2026-05-07T12:00:00Z",
+              "value": 428.7
+            },
+            {
+              "timestamp": "2026-05-07T12:15:00Z",
+              "value": 429.4
+            },
+            {
+              "timestamp": "2026-05-07T12:30:00Z",
+              "value": 429.9
+            },
+            {
+              "timestamp": "2026-05-07T12:45:00Z",
+              "value": 430.2
+            },
+            {
+              "timestamp": "2026-05-07T13:00:00Z",
+              "value": 430.4
+            },
+            {
+              "timestamp": "2026-05-07T13:15:00Z",
+              "value": 430.5
+            },
+            {
+              "timestamp": "2026-05-07T13:30:00Z",
+              "value": 430.3
+            },
+            {
+              "timestamp": "2026-05-07T13:45:00Z",
+              "value": 430.0
+            },
+            {
+              "timestamp": "2026-05-07T14:00:00Z",
+              "value": 429.5
+            },
+            {
+              "timestamp": "2026-05-07T14:15:00Z",
+              "value": 428.9
+            },
+            {
+              "timestamp": "2026-05-07T14:30:00Z",
+              "value": 428.2
+            },
+            {
+              "timestamp": "2026-05-07T14:45:00Z",
+              "value": 427.4
+            },
+            {
+              "timestamp": "2026-05-07T15:00:00Z",
+              "value": 426.5
+            },
+            {
+              "timestamp": "2026-05-07T15:15:00Z",
+              "value": 425.5
+            },
+            {
+              "timestamp": "2026-05-07T15:30:00Z",
+              "value": 424.4
+            },
+            {
+              "timestamp": "2026-05-07T15:45:00Z",
+              "value": 423.2
+            },
+            {
+              "timestamp": "2026-05-07T16:00:00Z",
+              "value": 421.9
+            },
+            {
+              "timestamp": "2026-05-07T16:15:00Z",
+              "value": 420.5
+            },
+            {
+              "timestamp": "2026-05-07T16:30:00Z",
+              "value": 419.0
+            },
+            {
+              "timestamp": "2026-05-07T16:45:00Z",
+              "value": 417.4
+            },
+            {
+              "timestamp": "2026-05-07T17:00:00Z",
+              "value": 415.7
+            },
+            {
+              "timestamp": "2026-05-07T17:15:00Z",
+              "value": 413.9
+            },
+            {
+              "timestamp": "2026-05-07T17:30:00Z",
+              "value": 412.0
+            },
+            {
+              "timestamp": "2026-05-07T17:45:00Z",
+              "value": 410.0
+            },
+            {
+              "timestamp": "2026-05-08T09:00:00Z",
+              "value": 421.0
+            },
+            {
+              "timestamp": "2026-05-08T09:15:00Z",
+              "value": 425.4
+            },
+            {
+              "timestamp": "2026-05-08T09:30:00Z",
+              "value": 429.3
+            },
+            {
+              "timestamp": "2026-05-08T09:45:00Z",
+              "value": 432.6
+            },
+            {
+              "timestamp": "2026-05-08T10:00:00Z",
+              "value": 435.3
+            },
+            {
+              "timestamp": "2026-05-08T10:15:00Z",
+              "value": 437.4
+            },
+            {
+              "timestamp": "2026-05-08T10:30:00Z",
+              "value": 439.0
+            },
+            {
+              "timestamp": "2026-05-08T10:45:00Z",
+              "value": 440.1
+            },
+            {
+              "timestamp": "2026-05-08T11:00:00Z",
+              "value": 440.9
+            },
+            {
+              "timestamp": "2026-05-08T11:15:00Z",
+              "value": 441.5
+            },
+            {
+              "timestamp": "2026-05-08T11:30:00Z",
+              "value": 441.8
+            },
+            {
+              "timestamp": "2026-05-08T11:45:00Z",
+              "value": 442.2
+            },
+            {
+              "timestamp": "2026-05-08T12:00:00Z",
+              "value": 442.8
+            },
+            {
+              "timestamp": "2026-05-08T12:15:00Z",
+              "value": 442.4
+            },
+            {
+              "timestamp": "2026-05-08T12:30:00Z",
+              "value": 441.9
+            },
+            {
+              "timestamp": "2026-05-08T12:45:00Z",
+              "value": 442.3
+            },
+            {
+              "timestamp": "2026-05-08T13:00:00Z",
+              "value": 443.0
+            },
+            {
+              "timestamp": "2026-05-08T13:15:00Z",
+              "value": 442.6
+            },
+            {
+              "timestamp": "2026-05-08T13:30:00Z",
+              "value": 442.1
+            },
+            {
+              "timestamp": "2026-05-08T13:45:00Z",
+              "value": 442.5
+            },
+            {
+              "timestamp": "2026-05-08T14:00:00Z",
+              "value": 443.2
+            },
+            {
+              "timestamp": "2026-05-08T14:15:00Z",
+              "value": 442.7
+            },
+            {
+              "timestamp": "2026-05-08T14:30:00Z",
+              "value": 442.2
+            },
+            {
+              "timestamp": "2026-05-08T14:45:00Z",
+              "value": 442.6
+            },
+            {
+              "timestamp": "2026-05-08T15:00:00Z",
+              "value": 443.4
+            },
+            {
+              "timestamp": "2026-05-08T15:15:00Z",
+              "value": 442.9
+            },
+            {
+              "timestamp": "2026-05-08T15:30:00Z",
+              "value": 442.3
+            },
+            {
+              "timestamp": "2026-05-08T15:45:00Z",
+              "value": 442.7
+            },
+            {
+              "timestamp": "2026-05-08T16:00:00Z",
+              "value": 443.5
+            },
+            {
+              "timestamp": "2026-05-08T16:15:00Z",
+              "value": 443.0
+            },
+            {
+              "timestamp": "2026-05-08T16:30:00Z",
+              "value": 442.4
+            },
+            {
+              "timestamp": "2026-05-08T16:45:00Z",
+              "value": 441.7
+            },
+            {
+              "timestamp": "2026-05-08T17:00:00Z",
+              "value": 440.8
+            },
+            {
+              "timestamp": "2026-05-08T17:15:00Z",
+              "value": 439.5
+            },
+            {
+              "timestamp": "2026-05-08T17:30:00Z",
+              "value": 437.9
+            },
+            {
+              "timestamp": "2026-05-08T17:45:00Z",
+              "value": 435.9
+            },
+            {
+              "timestamp": "2026-05-11T09:00:00Z",
+              "value": 428.3
+            },
+            {
+              "timestamp": "2026-05-11T09:15:00Z",
+              "value": 431.2
+            },
+            {
+              "timestamp": "2026-05-11T09:30:00Z",
+              "value": 434.1
+            },
+            {
+              "timestamp": "2026-05-11T09:45:00Z",
+              "value": 437.0
+            },
+            {
+              "timestamp": "2026-05-11T10:00:00Z",
+              "value": 439.9
+            },
+            {
+              "timestamp": "2026-05-11T10:15:00Z",
+              "value": 442.7
+            },
+            {
+              "timestamp": "2026-05-11T10:30:00Z",
+              "value": 445.5
+            },
+            {
+              "timestamp": "2026-05-11T10:45:00Z",
+              "value": 448.2
+            },
+            {
+              "timestamp": "2026-05-11T11:00:00Z",
+              "value": 450.9
+            },
+            {
+              "timestamp": "2026-05-11T11:15:00Z",
+              "value": 453.4
+            },
+            {
+              "timestamp": "2026-05-11T11:30:00Z",
+              "value": 455.8
+            },
+            {
+              "timestamp": "2026-05-11T11:45:00Z",
+              "value": 458.1
+            },
+            {
+              "timestamp": "2026-05-11T12:00:00Z",
+              "value": 460.3
+            },
+            {
+              "timestamp": "2026-05-11T12:15:00Z",
+              "value": 462.4
+            },
+            {
+              "timestamp": "2026-05-11T12:30:00Z",
+              "value": 464.3
+            },
+            {
+              "timestamp": "2026-05-11T12:45:00Z",
+              "value": 466.1
+            },
+            {
+              "timestamp": "2026-05-11T13:00:00Z",
+              "value": 467.8
+            },
+            {
+              "timestamp": "2026-05-11T13:15:00Z",
+              "value": 469.3
+            },
+            {
+              "timestamp": "2026-05-11T13:30:00Z",
+              "value": 470.7
+            },
+            {
+              "timestamp": "2026-05-11T13:45:00Z",
+              "value": 472.0
+            },
+            {
+              "timestamp": "2026-05-11T14:00:00Z",
+              "value": 473.1
+            },
+            {
+              "timestamp": "2026-05-11T14:15:00Z",
+              "value": 472.4
+            },
+            {
+              "timestamp": "2026-05-11T14:30:00Z",
+              "value": 471.6
+            },
+            {
+              "timestamp": "2026-05-11T14:45:00Z",
+              "value": 470.7
+            },
+            {
+              "timestamp": "2026-05-11T15:00:00Z",
+              "value": 469.7
+            },
+            {
+              "timestamp": "2026-05-11T15:15:00Z",
+              "value": 468.6
+            },
+            {
+              "timestamp": "2026-05-11T15:30:00Z",
+              "value": 467.4
+            },
+            {
+              "timestamp": "2026-05-11T15:45:00Z",
+              "value": 466.1
+            },
+            {
+              "timestamp": "2026-05-11T16:00:00Z",
+              "value": 464.7
+            },
+            {
+              "timestamp": "2026-05-11T16:15:00Z",
+              "value": 463.2
+            },
+            {
+              "timestamp": "2026-05-11T16:30:00Z",
+              "value": 461.6
+            },
+            {
+              "timestamp": "2026-05-11T16:45:00Z",
+              "value": 459.9
+            },
+            {
+              "timestamp": "2026-05-11T17:00:00Z",
+              "value": 458.1
+            },
+            {
+              "timestamp": "2026-05-11T17:15:00Z",
+              "value": 456.2
+            },
+            {
+              "timestamp": "2026-05-11T17:30:00Z",
+              "value": 454.2
+            },
+            {
+              "timestamp": "2026-05-11T17:45:00Z",
+              "value": 452.1
+            },
+            {
+              "timestamp": "2026-05-12T09:00:00Z",
+              "value": 408.5
+            },
+            {
+              "timestamp": "2026-05-12T09:15:00Z",
+              "value": 412.3
+            },
+            {
+              "timestamp": "2026-05-12T09:30:00Z",
+              "value": 416.1
+            },
+            {
+              "timestamp": "2026-05-12T09:45:00Z",
+              "value": 419.8
+            },
+            {
+              "timestamp": "2026-05-12T10:00:00Z",
+              "value": 423.4
+            },
+            {
+              "timestamp": "2026-05-12T10:15:00Z",
+              "value": 426.7
+            },
+            {
+              "timestamp": "2026-05-12T10:30:00Z",
+              "value": 429.8
+            },
+            {
+              "timestamp": "2026-05-12T10:45:00Z",
+              "value": 432.6
+            },
+            {
+              "timestamp": "2026-05-12T11:00:00Z",
+              "value": 435.2
+            },
+            {
+              "timestamp": "2026-05-12T11:15:00Z",
+              "value": 437.4
+            },
+            {
+              "timestamp": "2026-05-12T11:30:00Z",
+              "value": 439.3
+            },
+            {
+              "timestamp": "2026-05-12T11:45:00Z",
+              "value": 441.0
+            },
+            {
+              "timestamp": "2026-05-12T12:00:00Z",
+              "value": 442.5
+            },
+            {
+              "timestamp": "2026-05-12T12:15:00Z",
+              "value": 443.7
+            },
+            {
+              "timestamp": "2026-05-12T12:30:00Z",
+              "value": 444.6
+            },
+            {
+              "timestamp": "2026-05-12T12:45:00Z",
+              "value": 445.3
+            },
+            {
+              "timestamp": "2026-05-12T13:00:00Z",
+              "value": 445.8
+            },
+            {
+              "timestamp": "2026-05-12T13:15:00Z",
+              "value": 446.2
+            },
+            {
+              "timestamp": "2026-05-12T13:30:00Z",
+              "value": 446.5
+            },
+            {
+              "timestamp": "2026-05-12T13:45:00Z",
+              "value": 446.7
+            },
+            {
+              "timestamp": "2026-05-12T14:00:00Z",
+              "value": 446.8
+            },
+            {
+              "timestamp": "2026-05-12T14:15:00Z",
+              "value": 446.9
+            },
+            {
+              "timestamp": "2026-05-12T14:30:00Z",
+              "value": 447.0
+            },
+            {
+              "timestamp": "2026-05-12T14:45:00Z",
+              "value": 446.8
+            },
+            {
+              "timestamp": "2026-05-12T15:00:00Z",
+              "value": 446.6
+            },
+            {
+              "timestamp": "2026-05-12T15:15:00Z",
+              "value": 446.3
+            },
+            {
+              "timestamp": "2026-05-12T15:30:00Z",
+              "value": 445.9
+            },
+            {
+              "timestamp": "2026-05-12T15:45:00Z",
+              "value": 445.4
+            },
+            {
+              "timestamp": "2026-05-12T16:00:00Z",
+              "value": 444.8
+            },
+            {
+              "timestamp": "2026-05-12T16:15:00Z",
+              "value": 444.1
+            },
+            {
+              "timestamp": "2026-05-12T16:30:00Z",
+              "value": 443.3
+            },
+            {
+              "timestamp": "2026-05-12T16:45:00Z",
+              "value": 442.4
+            },
+            {
+              "timestamp": "2026-05-12T17:00:00Z",
+              "value": 441.4
+            },
+            {
+              "timestamp": "2026-05-12T17:15:00Z",
+              "value": 440.2
+            },
+            {
+              "timestamp": "2026-05-12T17:30:00Z",
+              "value": 438.9
+            },
+            {
+              "timestamp": "2026-05-12T17:45:00Z",
+              "value": 437.5
+            },
+            {
+              "timestamp": "2026-05-13T09:00:00Z",
+              "value": 430.5
+            },
+            {
+              "timestamp": "2026-05-13T09:15:00Z",
+              "value": 433.2
+            },
+            {
+              "timestamp": "2026-05-13T09:30:00Z",
+              "value": 435.8
+            },
+            {
+              "timestamp": "2026-05-13T09:45:00Z",
+              "value": 438.3
+            },
+            {
+              "timestamp": "2026-05-13T10:00:00Z",
+              "value": 440.7
+            },
+            {
+              "timestamp": "2026-05-13T10:15:00Z",
+              "value": 443.0
+            },
+            {
+              "timestamp": "2026-05-13T10:30:00Z",
+              "value": 445.1
+            },
+            {
+              "timestamp": "2026-05-13T10:45:00Z",
+              "value": 447.0
+            },
+            {
+              "timestamp": "2026-05-13T11:00:00Z",
+              "value": 448.8
+            },
+            {
+              "timestamp": "2026-05-13T11:15:00Z",
+              "value": 450.4
+            },
+            {
+              "timestamp": "2026-05-13T11:30:00Z",
+              "value": 451.8
+            },
+            {
+              "timestamp": "2026-05-13T11:45:00Z",
+              "value": 453.1
+            },
+            {
+              "timestamp": "2026-05-13T12:00:00Z",
+              "value": 454.6
+            },
+            {
+              "timestamp": "2026-05-13T12:15:00Z",
+              "value": 456.0
+            },
+            {
+              "timestamp": "2026-05-13T12:30:00Z",
+              "value": 457.3
+            },
+            {
+              "timestamp": "2026-05-13T12:45:00Z",
+              "value": 458.4
+            },
+            {
+              "timestamp": "2026-05-13T13:00:00Z",
+              "value": 459.4
+            },
+            {
+              "timestamp": "2026-05-13T13:15:00Z",
+              "value": 460.5
+            },
+            {
+              "timestamp": "2026-05-13T13:30:00Z",
+              "value": 461.7
+            },
+            {
+              "timestamp": "2026-05-13T13:45:00Z",
+              "value": 462.8
+            },
+            {
+              "timestamp": "2026-05-13T14:00:00Z",
+              "value": 463.8
+            },
+            {
+              "timestamp": "2026-05-13T14:15:00Z",
+              "value": 464.7
+            },
+            {
+              "timestamp": "2026-05-13T14:30:00Z",
+              "value": 465.8
+            },
+            {
+              "timestamp": "2026-05-13T14:45:00Z",
+              "value": 466.9
+            },
+            {
+              "timestamp": "2026-05-13T15:00:00Z",
+              "value": 467.9
+            },
+            {
+              "timestamp": "2026-05-13T15:15:00Z",
+              "value": 468.8
+            },
+            {
+              "timestamp": "2026-05-13T15:30:00Z",
+              "value": 469.6
+            },
+            {
+              "timestamp": "2026-05-13T15:45:00Z",
+              "value": 470.5
+            },
+            {
+              "timestamp": "2026-05-13T16:00:00Z",
+              "value": 471.5
+            },
+            {
+              "timestamp": "2026-05-13T16:15:00Z",
+              "value": 470.4
+            },
+            {
+              "timestamp": "2026-05-13T16:30:00Z",
+              "value": 469.2
+            },
+            {
+              "timestamp": "2026-05-13T16:45:00Z",
+              "value": 467.9
+            },
+            {
+              "timestamp": "2026-05-13T17:00:00Z",
+              "value": 466.5
+            },
+            {
+              "timestamp": "2026-05-13T17:15:00Z",
+              "value": 465.0
+            },
+            {
+              "timestamp": "2026-05-13T17:30:00Z",
+              "value": 463.4
+            },
+            {
+              "timestamp": "2026-05-13T17:45:00Z",
+              "value": 461.7
+            },
+            {
+              "timestamp": "2026-05-14T09:00:00Z",
+              "value": 398.7
+            },
+            {
+              "timestamp": "2026-05-14T09:15:00Z",
+              "value": 402.3
+            },
+            {
+              "timestamp": "2026-05-14T09:30:00Z",
+              "value": 406.1
+            },
+            {
+              "timestamp": "2026-05-14T09:45:00Z",
+              "value": 409.8
+            },
+            {
+              "timestamp": "2026-05-14T10:00:00Z",
+              "value": 413.4
+            },
+            {
+              "timestamp": "2026-05-14T10:15:00Z",
+              "value": 416.8
+            },
+            {
+              "timestamp": "2026-05-14T10:30:00Z",
+              "value": 420.1
+            },
+            {
+              "timestamp": "2026-05-14T10:45:00Z",
+              "value": 423.2
+            },
+            {
+              "timestamp": "2026-05-14T11:00:00Z",
+              "value": 426.0
+            },
+            {
+              "timestamp": "2026-05-14T11:15:00Z",
+              "value": 428.5
+            },
+            {
+              "timestamp": "2026-05-14T11:30:00Z",
+              "value": 430.7
+            },
+            {
+              "timestamp": "2026-05-14T11:45:00Z",
+              "value": 432.6
+            },
+            {
+              "timestamp": "2026-05-14T12:00:00Z",
+              "value": 434.2
+            },
+            {
+              "timestamp": "2026-05-14T12:15:00Z",
+              "value": 435.5
+            },
+            {
+              "timestamp": "2026-05-14T12:30:00Z",
+              "value": 436.5
+            },
+            {
+              "timestamp": "2026-05-14T12:45:00Z",
+              "value": 437.2
+            },
+            {
+              "timestamp": "2026-05-14T13:00:00Z",
+              "value": 437.8
+            },
+            {
+              "timestamp": "2026-05-14T13:15:00Z",
+              "value": 438.2
+            },
+            {
+              "timestamp": "2026-05-14T13:30:00Z",
+              "value": 438.5
+            },
+            {
+              "timestamp": "2026-05-14T13:45:00Z",
+              "value": 438.7
+            },
+            {
+              "timestamp": "2026-05-14T14:00:00Z",
+              "value": 438.9
+            },
+            {
+              "timestamp": "2026-05-14T14:15:00Z",
+              "value": 439.1
+            },
+            {
+              "timestamp": "2026-05-14T14:30:00Z",
+              "value": 439.3
+            },
+            {
+              "timestamp": "2026-05-14T14:45:00Z",
+              "value": 439.5
+            },
+            {
+              "timestamp": "2026-05-14T15:00:00Z",
+              "value": 439.7
+            },
+            {
+              "timestamp": "2026-05-14T15:15:00Z",
+              "value": 439.9
+            },
+            {
+              "timestamp": "2026-05-14T15:30:00Z",
+              "value": 440.1
+            },
+            {
+              "timestamp": "2026-05-14T15:45:00Z",
+              "value": 440.3
+            },
+            {
+              "timestamp": "2026-05-14T16:00:00Z",
+              "value": 440.1
+            },
+            {
+              "timestamp": "2026-05-14T16:15:00Z",
+              "value": 439.7
+            },
+            {
+              "timestamp": "2026-05-14T16:30:00Z",
+              "value": 439.1
+            },
+            {
+              "timestamp": "2026-05-14T16:45:00Z",
+              "value": 438.3
+            },
+            {
+              "timestamp": "2026-05-14T17:00:00Z",
+              "value": 437.2
+            },
+            {
+              "timestamp": "2026-05-14T17:15:00Z",
+              "value": 435.8
+            },
+            {
+              "timestamp": "2026-05-14T17:30:00Z",
+              "value": 434.1
+            },
+            {
+              "timestamp": "2026-05-14T17:45:00Z",
+              "value": 432.1
+            }
+          ]
+        }
+      },
+      "tool_name": "detect_threshold_breaches",
+      "tool_call": {
+        "id": 356,
+        "tool_name": "detect_threshold_breaches",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "threshold": 300,
+          "comparator": "gt"
+        }
+      }
+    },
+    "359": {
+      "id": 359,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:28",
+      "parent_id": 358,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_metric_distribution",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "distribution": {
+            "min": 170.1,
+            "max": 479.6,
+            "n_bins": 10,
+            "bins": [
+              {
+                "lo": 170.1,
+                "hi": 201.04999999999998,
+                "count": 893
+              },
+              {
+                "lo": 201.04999999999998,
+                "hi": 232.0,
+                "count": 80
+              },
+              {
+                "lo": 232.0,
+                "hi": 262.95,
+                "count": 11
+              },
+              {
+                "lo": 262.95,
+                "hi": 293.9,
+                "count": 0
+              },
+              {
+                "lo": 293.9,
+                "hi": 324.85,
+                "count": 0
+              },
+              {
+                "lo": 324.85,
+                "hi": 355.79999999999995,
+                "count": 0
+              },
+              {
+                "lo": 355.79999999999995,
+                "hi": 386.75,
+                "count": 0
+              },
+              {
+                "lo": 386.75,
+                "hi": 417.7,
+                "count": 25
+              },
+              {
+                "lo": 417.7,
+                "hi": 448.65,
+                "count": 231
+              },
+              {
+                "lo": 448.65,
+                "hi": 479.6,
+                "count": 104
+              }
+            ]
+          }
+        }
+      },
+      "tool_name": "get_metric_distribution",
+      "tool_call": {
+        "id": 358,
+        "tool_name": "get_metric_distribution",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms"
+        }
+      }
+    },
+    "361": {
+      "id": 361,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:28",
+      "parent_id": 360,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_metric_distribution",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "distribution": {
+            "min": 55.0,
+            "max": 70.9,
+            "n_bins": 10,
+            "bins": [
+              {
+                "lo": 55.0,
+                "hi": 56.59,
+                "count": 493
+              },
+              {
+                "lo": 56.59,
+                "hi": 58.18,
+                "count": 140
+              },
+              {
+                "lo": 58.18,
+                "hi": 59.77,
+                "count": 137
+              },
+              {
+                "lo": 59.77,
+                "hi": 61.36,
+                "count": 85
+              },
+              {
+                "lo": 61.36,
+                "hi": 62.95,
+                "count": 57
+              },
+              {
+                "lo": 62.95,
+                "hi": 64.54,
+                "count": 35
+              },
+              {
+                "lo": 64.54,
+                "hi": 66.13000000000001,
+                "count": 32
+              },
+              {
+                "lo": 66.13000000000001,
+                "hi": 67.72,
+                "count": 91
+              },
+              {
+                "lo": 67.72,
+                "hi": 69.31,
+                "count": 168
+              },
+              {
+                "lo": 69.31,
+                "hi": 70.9,
+                "count": 106
+              }
+            ]
+          }
+        }
+      },
+      "tool_name": "get_metric_distribution",
+      "tool_call": {
+        "id": 360,
+        "tool_name": "get_metric_distribution",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "cpu_p95"
+        }
+      }
+    },
+    "363": {
+      "id": 363,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:28",
+      "parent_id": 362,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_time_pattern",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "cpu_p95",
+          "time_pattern": {
+            "by_hour_of_day": {
+              "0": 56.042857142857144,
+              "1": 55.49821428571428,
+              "2": 55.346428571428575,
+              "3": 55.32678571428571,
+              "4": 55.6625,
+              "5": 56.45892857142857,
+              "6": 57.79642857142857,
+              "7": 59.96071428571429,
+              "8": 62.70892857142857,
+              "9": 64.93035714285715,
+              "10": 65.94821428571429,
+              "11": 66.39285714285714,
+              "12": 66.54285714285714,
+              "13": 66.67857142857143,
+              "14": 66.575,
+              "15": 66.34821428571429,
+              "16": 65.99285714285715,
+              "17": 65.16964285714286,
+              "18": 62.56785714285714,
+              "19": 59.635714285714286,
+              "20": 57.45535714285714,
+              "21": 56.275,
+              "22": 55.68035714285714,
+              "23": 55.4625
+            },
+            "by_weekday": {
+              "0": 61.8859375,
+              "1": 62.0546875,
+              "2": 62.60208333333333,
+              "3": 61.36145833333333,
+              "4": 61.7171875,
+              "5": 57.64479166666667,
+              "6": 57.533854166666664
+            },
+            "n_records": 1344
+          }
+        }
+      },
+      "tool_name": "get_time_pattern",
+      "tool_call": {
+        "id": 362,
+        "tool_name": "get_time_pattern",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "cpu_p95"
+        }
+      }
+    },
+    "365": {
+      "id": 365,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:33",
+      "parent_id": 364,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs",
+        "reconciliation.drift_check[0].supporting_evidence_refs",
+        "reconciliation.cross_tier_correlations[1].evidence_ref"
+      ],
+      "content": {
+        "tool_name": "get_time_pattern",
+        "result": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms",
+          "time_pattern": {
+            "by_hour_of_day": {
+              "0": 183.55892857142857,
+              "1": 181.90714285714287,
+              "2": 181.45892857142857,
+              "3": 181.16785714285714,
+              "4": 181.83392857142857,
+              "5": 183.46785714285716,
+              "6": 186.43571428571428,
+              "7": 192.02857142857144,
+              "8": 200.55535714285713,
+              "9": 355.6928571428571,
+              "10": 364.19464285714287,
+              "11": 370.0392857142857,
+              "12": 373.63928571428573,
+              "13": 375.5,
+              "14": 375.90714285714284,
+              "15": 375.03035714285716,
+              "16": 373.0464285714286,
+              "17": 368.95,
+              "18": 212.33035714285714,
+              "19": 196.85535714285714,
+              "20": 187.69285714285715,
+              "21": 183.75,
+              "22": 182.36964285714285,
+              "23": 180.72142857142856
+            },
+            "by_weekday": {
+              "0": 288.47083333333336,
+              "1": 287.70989583333335,
+              "2": 288.74635416666666,
+              "3": 276.9234375,
+              "4": 281.63072916666664,
+              "5": 184.80572916666668,
+              "6": 184.91875
+            },
+            "n_records": 1344
+          }
+        }
+      },
+      "tool_name": "get_time_pattern",
+      "tool_call": {
+        "id": 364,
+        "tool_name": "get_time_pattern",
+        "args": {
+          "app_name": "app-07",
+          "tier": "compute",
+          "metric": "application_p95_latency_ms"
+        }
+      }
+    },
+    "367": {
+      "id": 367,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "compute_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:01:33",
+      "parent_id": 366,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[0].evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_business_context",
+        "result": {
+          "app_name": "app-07",
+          "business_context": {
+            "description": "High-criticality recommendation engine, customer-facing",
+            "sla_target_description": "99.9% availability, P95 < 300ms",
+            "sla_target_p95_ms": 300.0,
+            "sla_target_availability_pct": 99.9,
+            "criticality": "tier-1"
+          }
+        }
+      },
+      "tool_name": "get_business_context",
+      "tool_call": {
+        "id": 366,
+        "tool_name": "get_business_context",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "368": {
+      "id": 368,
+      "status": "resolved",
+      "type": "specialist_finding",
+      "agent": "compute_analyst",
+      "category": "decision",
+      "timestamp": "2026-06-04 15:01:51",
+      "parent_id": null,
+      "cited_by": [
+        "recommendation.evidence_refs"
+      ],
+      "content": {
+        "specialist": "compute_analyst",
+        "finding_type": "issue_found",
+        "headline": "Sustained SLA breaches during business hours: P95 latency reaches 430\u2013480ms against a 300ms SLA target on this tier-1 customer-facing recommendation engine.",
+        "primary_tier": "compute",
+        "confidence": 0.93,
+        "reasoning_summary": "The application_p95_latency_ms metric shows 360 threshold breaches (>300ms SLA) concentrated during weekday business hours (09:00\u201318:00), with hourly averages of 355\u2013376ms and peaks reaching 479ms. The latency distribution is bimodal: 893 records cluster at 170\u2013201ms (off-peak), while 360 records sit in the 387\u2013480ms range (peak), confirming two distinct operating regimes. CPU_p95 averages ~66% during business hours on the 6\u00d7 m5.large fleet (ASG min=6, max=10 with target_tracking), indicating the fleet is under moderate pressure but not scaling to its maximum \u2014 suggesting the scaling policy thresholds may need tuning or a compute-external bottleneck is involved. Given this is a tier-1 customer-facing recommendation engine, the sustained weekday SLA violations represent a critical optimization opportunity requiring either scaling policy adjustment, instance upsizing, or investigation of downstream bottlenecks.",
+        "evidence_refs": [
+          329,
+          331,
+          333,
+          335,
+          337,
+          339,
+          357,
+          359,
+          361,
+          363,
+          365,
+          367
+        ]
+      }
+    },
+    "372": {
+      "id": 372,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:02:48",
+      "parent_id": 371,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_configuration",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "configuration": {
+            "present": true,
+            "instance_class": "db.r6g.large",
+            "replicas": 2,
+            "storage_gb": 500
+          }
+        }
+      },
+      "tool_name": "get_configuration",
+      "tool_call": {
+        "id": 371,
+        "tool_name": "get_configuration",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database"
+        }
+      }
+    },
+    "374": {
+      "id": 374,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:02:48",
+      "parent_id": 373,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_configuration",
+        "result": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "configuration": {
+            "present": true,
+            "node_type": "cache.r6g.large",
+            "node_count": 3,
+            "ttl_seconds": 3600
+          }
+        }
+      },
+      "tool_name": "get_configuration",
+      "tool_call": {
+        "id": 373,
+        "tool_name": "get_configuration",
+        "args": {
+          "app_name": "app-07",
+          "tier": "cache"
+        }
+      }
+    },
+    "376": {
+      "id": 376,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:02:48",
+      "parent_id": 375,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_monthly_cost",
+        "result": {
+          "app_name": "app-07",
+          "cost_baseline": {
+            "monthly_cost_total_usd": 5800.0,
+            "by_tier": {
+              "compute": 3200.0,
+              "database": 1900.0,
+              "cache": 700.0,
+              "network": 0.0
+            }
+          }
+        }
+      },
+      "tool_name": "get_monthly_cost",
+      "tool_call": {
+        "id": 375,
+        "tool_name": "get_monthly_cost",
+        "args": {
+          "app_name": "app-07"
+        }
+      }
+    },
+    "378": {
+      "id": 378,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:02:48",
+      "parent_id": 377,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_time_pattern",
+        "result": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "hit_rate",
+          "time_pattern": {
+            "by_hour_of_day": {
+              "0": null,
+              "1": null,
+              "2": null,
+              "3": null,
+              "4": null,
+              "5": null,
+              "6": null,
+              "7": null,
+              "8": null,
+              "9": null,
+              "10": null,
+              "11": null,
+              "12": null,
+              "13": null,
+              "14": null,
+              "15": null,
+              "16": null,
+              "17": null,
+              "18": null,
+              "19": null,
+              "20": null,
+              "21": null,
+              "22": null,
+              "23": null
+            },
+            "by_weekday": {
+              "0": null,
+              "1": null,
+              "2": null,
+              "3": null,
+              "4": null,
+              "5": null,
+              "6": null
+            },
+            "n_records": 0
+          }
+        }
+      },
+      "tool_name": "get_time_pattern",
+      "tool_call": {
+        "id": 377,
+        "tool_name": "get_time_pattern",
+        "args": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "hit_rate"
+        }
+      }
+    },
+    "380": {
+      "id": 380,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:02:48",
+      "parent_id": 379,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs",
+        "reconciliation.cross_tier_correlations[2].evidence_ref"
+      ],
+      "content": {
+        "tool_name": "get_time_pattern",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_query_p95_latency_ms",
+          "time_pattern": {
+            "by_hour_of_day": {
+              "0": 68.15,
+              "1": 66.23392857142856,
+              "2": 64.81428571428572,
+              "3": 64.075,
+              "4": 65.44821428571429,
+              "5": 69.70535714285714,
+              "6": 76.68928571428572,
+              "7": 84.73214285714286,
+              "8": 93.20714285714286,
+              "9": 241.7875,
+              "10": 249.0482142857143,
+              "11": 253.61607142857142,
+              "12": 255.5107142857143,
+              "13": 255.5142857142857,
+              "14": 255.05,
+              "15": 253.76250000000002,
+              "16": 251.2107142857143,
+              "17": 244.19464285714287,
+              "18": 94.37142857142857,
+              "19": 82.59107142857142,
+              "20": 72.66964285714286,
+              "21": 66.99285714285715,
+              "22": 63.61964285714286,
+              "23": 62.85178571428571
+            },
+            "by_weekday": {
+              "0": 160.74270833333333,
+              "1": 162.97291666666666,
+              "2": 163.49583333333334,
+              "3": 161.284375,
+              "4": 160.86458333333334,
+              "5": 84.96927083333334,
+              "6": 84.45885416666667
+            },
+            "n_records": 1344
+          }
+        }
+      },
+      "tool_name": "get_time_pattern",
+      "tool_call": {
+        "id": 379,
+        "tool_name": "get_time_pattern",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_query_p95_latency_ms"
+        }
+      }
+    },
+    "382": {
+      "id": 382,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:02:56",
+      "parent_id": 381,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "cache_hit_ratio",
+          "statistics": {
+            "mean": 0.6685044642857143,
+            "p50": 0.7,
+            "p90": 0.71,
+            "p95": 0.71
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 381,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "cache_hit_ratio"
+        }
+      }
+    },
+    "390": {
+      "id": 390,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:02:56",
+      "parent_id": 389,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "detect_threshold_breaches",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_query_p95_latency_ms",
+          "threshold": 300.0,
+          "comparator": "gt",
+          "breach_count": 335,
+          "breaches": [
+            {
+              "timestamp": "2026-05-01T09:15:00Z",
+              "value": 300.4
+            },
+            {
+              "timestamp": "2026-05-01T09:30:00Z",
+              "value": 302.7
+            },
+            {
+              "timestamp": "2026-05-01T09:45:00Z",
+              "value": 304.2
+            },
+            {
+              "timestamp": "2026-05-01T10:00:00Z",
+              "value": 305.8
+            },
+            {
+              "timestamp": "2026-05-01T10:15:00Z",
+              "value": 306.9
+            },
+            {
+              "timestamp": "2026-05-01T10:30:00Z",
+              "value": 307.5
+            },
+            {
+              "timestamp": "2026-05-01T10:45:00Z",
+              "value": 308.2
+            },
+            {
+              "timestamp": "2026-05-01T11:00:00Z",
+              "value": 309.0
+            },
+            {
+              "timestamp": "2026-05-01T11:15:00Z",
+              "value": 309.4
+            },
+            {
+              "timestamp": "2026-05-01T11:30:00Z",
+              "value": 308.8
+            },
+            {
+              "timestamp": "2026-05-01T11:45:00Z",
+              "value": 309.1
+            },
+            {
+              "timestamp": "2026-05-01T12:00:00Z",
+              "value": 309.6
+            },
+            {
+              "timestamp": "2026-05-01T12:15:00Z",
+              "value": 308.5
+            },
+            {
+              "timestamp": "2026-05-01T12:30:00Z",
+              "value": 307.9
+            },
+            {
+              "timestamp": "2026-05-01T12:45:00Z",
+              "value": 308.3
+            },
+            {
+              "timestamp": "2026-05-01T13:00:00Z",
+              "value": 309.0
+            },
+            {
+              "timestamp": "2026-05-01T13:15:00Z",
+              "value": 309.5
+            },
+            {
+              "timestamp": "2026-05-01T13:30:00Z",
+              "value": 308.7
+            },
+            {
+              "timestamp": "2026-05-01T13:45:00Z",
+              "value": 307.8
+            },
+            {
+              "timestamp": "2026-05-01T14:00:00Z",
+              "value": 308.4
+            },
+            {
+              "timestamp": "2026-05-01T14:15:00Z",
+              "value": 309.2
+            },
+            {
+              "timestamp": "2026-05-01T14:30:00Z",
+              "value": 308.9
+            },
+            {
+              "timestamp": "2026-05-01T14:45:00Z",
+              "value": 307.6
+            },
+            {
+              "timestamp": "2026-05-01T15:00:00Z",
+              "value": 306.8
+            },
+            {
+              "timestamp": "2026-05-01T15:15:00Z",
+              "value": 307.3
+            },
+            {
+              "timestamp": "2026-05-01T15:30:00Z",
+              "value": 308.1
+            },
+            {
+              "timestamp": "2026-05-01T15:45:00Z",
+              "value": 309.3
+            },
+            {
+              "timestamp": "2026-05-01T16:00:00Z",
+              "value": 308.6
+            },
+            {
+              "timestamp": "2026-05-01T16:15:00Z",
+              "value": 307.4
+            },
+            {
+              "timestamp": "2026-05-01T16:30:00Z",
+              "value": 306.2
+            },
+            {
+              "timestamp": "2026-05-01T16:45:00Z",
+              "value": 305.0
+            },
+            {
+              "timestamp": "2026-05-01T17:00:00Z",
+              "value": 303.5
+            },
+            {
+              "timestamp": "2026-05-01T17:15:00Z",
+              "value": 301.8
+            },
+            {
+              "timestamp": "2026-05-04T10:15:00Z",
+              "value": 301.2
+            },
+            {
+              "timestamp": "2026-05-04T10:30:00Z",
+              "value": 302.7
+            },
+            {
+              "timestamp": "2026-05-04T10:45:00Z",
+              "value": 304.3
+            },
+            {
+              "timestamp": "2026-05-04T11:00:00Z",
+              "value": 305.8
+            },
+            {
+              "timestamp": "2026-05-04T11:15:00Z",
+              "value": 306.9
+            },
+            {
+              "timestamp": "2026-05-04T11:30:00Z",
+              "value": 308.1
+            },
+            {
+              "timestamp": "2026-05-04T11:45:00Z",
+              "value": 309.2
+            },
+            {
+              "timestamp": "2026-05-04T12:00:00Z",
+              "value": 309.8
+            },
+            {
+              "timestamp": "2026-05-04T12:15:00Z",
+              "value": 308.6
+            },
+            {
+              "timestamp": "2026-05-04T12:30:00Z",
+              "value": 307.4
+            },
+            {
+              "timestamp": "2026-05-04T12:45:00Z",
+              "value": 306.1
+            },
+            {
+              "timestamp": "2026-05-04T13:00:00Z",
+              "value": 305.3
+            },
+            {
+              "timestamp": "2026-05-04T13:15:00Z",
+              "value": 306.7
+            },
+            {
+              "timestamp": "2026-05-04T13:30:00Z",
+              "value": 308.2
+            },
+            {
+              "timestamp": "2026-05-04T13:45:00Z",
+              "value": 309.5
+            },
+            {
+              "timestamp": "2026-05-04T14:00:00Z",
+              "value": 309.9
+            },
+            {
+              "timestamp": "2026-05-04T14:15:00Z",
+              "value": 308.8
+            },
+            {
+              "timestamp": "2026-05-04T14:30:00Z",
+              "value": 307.5
+            },
+            {
+              "timestamp": "2026-05-04T14:45:00Z",
+              "value": 306.3
+            },
+            {
+              "timestamp": "2026-05-04T15:00:00Z",
+              "value": 305.1
+            },
+            {
+              "timestamp": "2026-05-04T15:15:00Z",
+              "value": 306.4
+            },
+            {
+              "timestamp": "2026-05-04T15:30:00Z",
+              "value": 307.8
+            },
+            {
+              "timestamp": "2026-05-04T15:45:00Z",
+              "value": 309.1
+            },
+            {
+              "timestamp": "2026-05-04T16:00:00Z",
+              "value": 309.7
+            },
+            {
+              "timestamp": "2026-05-04T16:15:00Z",
+              "value": 308.5
+            },
+            {
+              "timestamp": "2026-05-04T16:30:00Z",
+              "value": 307.2
+            },
+            {
+              "timestamp": "2026-05-04T16:45:00Z",
+              "value": 305.9
+            },
+            {
+              "timestamp": "2026-05-04T17:00:00Z",
+              "value": 304.6
+            },
+            {
+              "timestamp": "2026-05-04T17:15:00Z",
+              "value": 303.2
+            },
+            {
+              "timestamp": "2026-05-04T17:30:00Z",
+              "value": 301.8
+            },
+            {
+              "timestamp": "2026-05-04T17:45:00Z",
+              "value": 300.3
+            },
+            {
+              "timestamp": "2026-05-05T09:00:00Z",
+              "value": 300.4
+            },
+            {
+              "timestamp": "2026-05-05T09:15:00Z",
+              "value": 302.8
+            },
+            {
+              "timestamp": "2026-05-05T09:30:00Z",
+              "value": 305.1
+            },
+            {
+              "timestamp": "2026-05-05T09:45:00Z",
+              "value": 307.3
+            },
+            {
+              "timestamp": "2026-05-05T10:00:00Z",
+              "value": 309.6
+            },
+            {
+              "timestamp": "2026-05-05T10:15:00Z",
+              "value": 311.2
+            },
+            {
+              "timestamp": "2026-05-05T10:30:00Z",
+              "value": 312.8
+            },
+            {
+              "timestamp": "2026-05-05T10:45:00Z",
+              "value": 314.3
+            },
+            {
+              "timestamp": "2026-05-05T11:00:00Z",
+              "value": 315.7
+            },
+            {
+              "timestamp": "2026-05-05T11:15:00Z",
+              "value": 316.9
+            },
+            {
+              "timestamp": "2026-05-05T11:30:00Z",
+              "value": 318.1
+            },
+            {
+              "timestamp": "2026-05-05T11:45:00Z",
+              "value": 319.2
+            },
+            {
+              "timestamp": "2026-05-05T12:00:00Z",
+              "value": 319.8
+            },
+            {
+              "timestamp": "2026-05-05T12:15:00Z",
+              "value": 318.6
+            },
+            {
+              "timestamp": "2026-05-05T12:30:00Z",
+              "value": 317.4
+            },
+            {
+              "timestamp": "2026-05-05T12:45:00Z",
+              "value": 316.1
+            },
+            {
+              "timestamp": "2026-05-05T13:00:00Z",
+              "value": 315.3
+            },
+            {
+              "timestamp": "2026-05-05T13:15:00Z",
+              "value": 316.8
+            },
+            {
+              "timestamp": "2026-05-05T13:30:00Z",
+              "value": 318.2
+            },
+            {
+              "timestamp": "2026-05-05T13:45:00Z",
+              "value": 319.4
+            },
+            {
+              "timestamp": "2026-05-05T14:00:00Z",
+              "value": 319.9
+            },
+            {
+              "timestamp": "2026-05-05T14:15:00Z",
+              "value": 318.7
+            },
+            {
+              "timestamp": "2026-05-05T14:30:00Z",
+              "value": 317.5
+            },
+            {
+              "timestamp": "2026-05-05T14:45:00Z",
+              "value": 316.3
+            },
+            {
+              "timestamp": "2026-05-05T15:00:00Z",
+              "value": 315.1
+            },
+            {
+              "timestamp": "2026-05-05T15:15:00Z",
+              "value": 316.4
+            },
+            {
+              "timestamp": "2026-05-05T15:30:00Z",
+              "value": 317.8
+            },
+            {
+              "timestamp": "2026-05-05T15:45:00Z",
+              "value": 318.9
+            },
+            {
+              "timestamp": "2026-05-05T16:00:00Z",
+              "value": 319.5
+            },
+            {
+              "timestamp": "2026-05-05T16:15:00Z",
+              "value": 318.3
+            },
+            {
+              "timestamp": "2026-05-05T16:30:00Z",
+              "value": 316.9
+            },
+            {
+              "timestamp": "2026-05-05T16:45:00Z",
+              "value": 315.2
+            },
+            {
+              "timestamp": "2026-05-05T17:00:00Z",
+              "value": 313.4
+            },
+            {
+              "timestamp": "2026-05-05T17:15:00Z",
+              "value": 311.6
+            },
+            {
+              "timestamp": "2026-05-05T17:30:00Z",
+              "value": 309.7
+            },
+            {
+              "timestamp": "2026-05-05T17:45:00Z",
+              "value": 307.5
+            },
+            {
+              "timestamp": "2026-05-06T09:15:00Z",
+              "value": 300.7
+            },
+            {
+              "timestamp": "2026-05-06T09:30:00Z",
+              "value": 303.1
+            },
+            {
+              "timestamp": "2026-05-06T09:45:00Z",
+              "value": 305.4
+            },
+            {
+              "timestamp": "2026-05-06T10:00:00Z",
+              "value": 307.8
+            },
+            {
+              "timestamp": "2026-05-06T10:15:00Z",
+              "value": 309.3
+            },
+            {
+              "timestamp": "2026-05-06T10:30:00Z",
+              "value": 311.2
+            },
+            {
+              "timestamp": "2026-05-06T10:45:00Z",
+              "value": 312.5
+            },
+            {
+              "timestamp": "2026-05-06T11:00:00Z",
+              "value": 313.8
+            },
+            {
+              "timestamp": "2026-05-06T11:15:00Z",
+              "value": 315.1
+            },
+            {
+              "timestamp": "2026-05-06T11:30:00Z",
+              "value": 316.4
+            },
+            {
+              "timestamp": "2026-05-06T11:45:00Z",
+              "value": 317.6
+            },
+            {
+              "timestamp": "2026-05-06T12:00:00Z",
+              "value": 318.9
+            },
+            {
+              "timestamp": "2026-05-06T12:15:00Z",
+              "value": 319.4
+            },
+            {
+              "timestamp": "2026-05-06T12:30:00Z",
+              "value": 318.7
+            },
+            {
+              "timestamp": "2026-05-06T12:45:00Z",
+              "value": 317.3
+            },
+            {
+              "timestamp": "2026-05-06T13:00:00Z",
+              "value": 316.1
+            },
+            {
+              "timestamp": "2026-05-06T13:15:00Z",
+              "value": 315.4
+            },
+            {
+              "timestamp": "2026-05-06T13:30:00Z",
+              "value": 314.8
+            },
+            {
+              "timestamp": "2026-05-06T13:45:00Z",
+              "value": 315.2
+            },
+            {
+              "timestamp": "2026-05-06T14:00:00Z",
+              "value": 316.0
+            },
+            {
+              "timestamp": "2026-05-06T14:15:00Z",
+              "value": 316.7
+            },
+            {
+              "timestamp": "2026-05-06T14:30:00Z",
+              "value": 317.5
+            },
+            {
+              "timestamp": "2026-05-06T14:45:00Z",
+              "value": 318.2
+            },
+            {
+              "timestamp": "2026-05-06T15:00:00Z",
+              "value": 317.8
+            },
+            {
+              "timestamp": "2026-05-06T15:15:00Z",
+              "value": 316.9
+            },
+            {
+              "timestamp": "2026-05-06T15:30:00Z",
+              "value": 315.6
+            },
+            {
+              "timestamp": "2026-05-06T15:45:00Z",
+              "value": 314.3
+            },
+            {
+              "timestamp": "2026-05-06T16:00:00Z",
+              "value": 313.1
+            },
+            {
+              "timestamp": "2026-05-06T16:15:00Z",
+              "value": 311.8
+            },
+            {
+              "timestamp": "2026-05-06T16:30:00Z",
+              "value": 310.4
+            },
+            {
+              "timestamp": "2026-05-06T16:45:00Z",
+              "value": 308.9
+            },
+            {
+              "timestamp": "2026-05-06T17:00:00Z",
+              "value": 307.2
+            },
+            {
+              "timestamp": "2026-05-06T17:15:00Z",
+              "value": 305.5
+            },
+            {
+              "timestamp": "2026-05-06T17:30:00Z",
+              "value": 303.8
+            },
+            {
+              "timestamp": "2026-05-06T17:45:00Z",
+              "value": 301.9
+            },
+            {
+              "timestamp": "2026-05-07T09:15:00Z",
+              "value": 301.5
+            },
+            {
+              "timestamp": "2026-05-07T09:30:00Z",
+              "value": 303.8
+            },
+            {
+              "timestamp": "2026-05-07T09:45:00Z",
+              "value": 305.2
+            },
+            {
+              "timestamp": "2026-05-07T10:00:00Z",
+              "value": 307.4
+            },
+            {
+              "timestamp": "2026-05-07T10:15:00Z",
+              "value": 308.9
+            },
+            {
+              "timestamp": "2026-05-07T10:30:00Z",
+              "value": 310.3
+            },
+            {
+              "timestamp": "2026-05-07T10:45:00Z",
+              "value": 311.7
+            },
+            {
+              "timestamp": "2026-05-07T11:00:00Z",
+              "value": 313.1
+            },
+            {
+              "timestamp": "2026-05-07T11:15:00Z",
+              "value": 314.4
+            },
+            {
+              "timestamp": "2026-05-07T11:30:00Z",
+              "value": 315.6
+            },
+            {
+              "timestamp": "2026-05-07T11:45:00Z",
+              "value": 316.8
+            },
+            {
+              "timestamp": "2026-05-07T12:00:00Z",
+              "value": 318.1
+            },
+            {
+              "timestamp": "2026-05-07T12:15:00Z",
+              "value": 319.3
+            },
+            {
+              "timestamp": "2026-05-07T12:30:00Z",
+              "value": 320.0
+            },
+            {
+              "timestamp": "2026-05-07T12:45:00Z",
+              "value": 319.5
+            },
+            {
+              "timestamp": "2026-05-07T13:00:00Z",
+              "value": 318.7
+            },
+            {
+              "timestamp": "2026-05-07T13:15:00Z",
+              "value": 317.9
+            },
+            {
+              "timestamp": "2026-05-07T13:30:00Z",
+              "value": 316.4
+            },
+            {
+              "timestamp": "2026-05-07T13:45:00Z",
+              "value": 315.2
+            },
+            {
+              "timestamp": "2026-05-07T14:00:00Z",
+              "value": 314.0
+            },
+            {
+              "timestamp": "2026-05-07T14:15:00Z",
+              "value": 312.8
+            },
+            {
+              "timestamp": "2026-05-07T14:30:00Z",
+              "value": 311.5
+            },
+            {
+              "timestamp": "2026-05-07T14:45:00Z",
+              "value": 310.2
+            },
+            {
+              "timestamp": "2026-05-07T15:00:00Z",
+              "value": 309.0
+            },
+            {
+              "timestamp": "2026-05-07T15:15:00Z",
+              "value": 307.8
+            },
+            {
+              "timestamp": "2026-05-07T15:30:00Z",
+              "value": 306.5
+            },
+            {
+              "timestamp": "2026-05-07T15:45:00Z",
+              "value": 305.1
+            },
+            {
+              "timestamp": "2026-05-07T16:00:00Z",
+              "value": 303.7
+            },
+            {
+              "timestamp": "2026-05-07T16:15:00Z",
+              "value": 302.3
+            },
+            {
+              "timestamp": "2026-05-07T16:30:00Z",
+              "value": 300.8
+            },
+            {
+              "timestamp": "2026-05-08T09:45:00Z",
+              "value": 300.4
+            },
+            {
+              "timestamp": "2026-05-08T10:00:00Z",
+              "value": 302.7
+            },
+            {
+              "timestamp": "2026-05-08T10:15:00Z",
+              "value": 304.9
+            },
+            {
+              "timestamp": "2026-05-08T10:30:00Z",
+              "value": 306.3
+            },
+            {
+              "timestamp": "2026-05-08T10:45:00Z",
+              "value": 307.8
+            },
+            {
+              "timestamp": "2026-05-08T11:00:00Z",
+              "value": 308.9
+            },
+            {
+              "timestamp": "2026-05-08T11:15:00Z",
+              "value": 309.4
+            },
+            {
+              "timestamp": "2026-05-08T11:30:00Z",
+              "value": 309.8
+            },
+            {
+              "timestamp": "2026-05-08T11:45:00Z",
+              "value": 309.6
+            },
+            {
+              "timestamp": "2026-05-08T12:00:00Z",
+              "value": 309.2
+            },
+            {
+              "timestamp": "2026-05-08T12:15:00Z",
+              "value": 308.7
+            },
+            {
+              "timestamp": "2026-05-08T12:30:00Z",
+              "value": 307.9
+            },
+            {
+              "timestamp": "2026-05-08T12:45:00Z",
+              "value": 306.5
+            },
+            {
+              "timestamp": "2026-05-08T13:00:00Z",
+              "value": 305.3
+            },
+            {
+              "timestamp": "2026-05-08T13:15:00Z",
+              "value": 304.1
+            },
+            {
+              "timestamp": "2026-05-08T13:30:00Z",
+              "value": 303.2
+            },
+            {
+              "timestamp": "2026-05-08T13:45:00Z",
+              "value": 302.4
+            },
+            {
+              "timestamp": "2026-05-08T14:00:00Z",
+              "value": 301.7
+            },
+            {
+              "timestamp": "2026-05-08T14:15:00Z",
+              "value": 302.1
+            },
+            {
+              "timestamp": "2026-05-08T14:30:00Z",
+              "value": 303.5
+            },
+            {
+              "timestamp": "2026-05-08T14:45:00Z",
+              "value": 304.8
+            },
+            {
+              "timestamp": "2026-05-08T15:00:00Z",
+              "value": 306.2
+            },
+            {
+              "timestamp": "2026-05-08T15:15:00Z",
+              "value": 307.4
+            },
+            {
+              "timestamp": "2026-05-08T15:30:00Z",
+              "value": 308.1
+            },
+            {
+              "timestamp": "2026-05-08T15:45:00Z",
+              "value": 308.6
+            },
+            {
+              "timestamp": "2026-05-08T16:00:00Z",
+              "value": 309.0
+            },
+            {
+              "timestamp": "2026-05-08T16:15:00Z",
+              "value": 309.3
+            },
+            {
+              "timestamp": "2026-05-08T16:30:00Z",
+              "value": 308.8
+            },
+            {
+              "timestamp": "2026-05-08T16:45:00Z",
+              "value": 307.5
+            },
+            {
+              "timestamp": "2026-05-08T17:00:00Z",
+              "value": 305.9
+            },
+            {
+              "timestamp": "2026-05-08T17:15:00Z",
+              "value": 303.4
+            },
+            {
+              "timestamp": "2026-05-08T17:30:00Z",
+              "value": 300.7
+            },
+            {
+              "timestamp": "2026-05-11T09:00:00Z",
+              "value": 300.3
+            },
+            {
+              "timestamp": "2026-05-11T09:15:00Z",
+              "value": 303.7
+            },
+            {
+              "timestamp": "2026-05-11T09:30:00Z",
+              "value": 306.2
+            },
+            {
+              "timestamp": "2026-05-11T09:45:00Z",
+              "value": 308.4
+            },
+            {
+              "timestamp": "2026-05-11T10:00:00Z",
+              "value": 309.1
+            },
+            {
+              "timestamp": "2026-05-11T10:15:00Z",
+              "value": 308.7
+            },
+            {
+              "timestamp": "2026-05-11T10:30:00Z",
+              "value": 309.5
+            },
+            {
+              "timestamp": "2026-05-11T10:45:00Z",
+              "value": 308.2
+            },
+            {
+              "timestamp": "2026-05-11T11:00:00Z",
+              "value": 307.6
+            },
+            {
+              "timestamp": "2026-05-11T11:15:00Z",
+              "value": 308.9
+            },
+            {
+              "timestamp": "2026-05-11T11:30:00Z",
+              "value": 309.3
+            },
+            {
+              "timestamp": "2026-05-11T11:45:00Z",
+              "value": 308.5
+            },
+            {
+              "timestamp": "2026-05-11T12:00:00Z",
+              "value": 309.8
+            },
+            {
+              "timestamp": "2026-05-11T12:15:00Z",
+              "value": 308.1
+            },
+            {
+              "timestamp": "2026-05-11T12:30:00Z",
+              "value": 307.4
+            },
+            {
+              "timestamp": "2026-05-11T12:45:00Z",
+              "value": 308.6
+            },
+            {
+              "timestamp": "2026-05-11T13:00:00Z",
+              "value": 309.2
+            },
+            {
+              "timestamp": "2026-05-11T13:15:00Z",
+              "value": 308.8
+            },
+            {
+              "timestamp": "2026-05-11T13:30:00Z",
+              "value": 307.9
+            },
+            {
+              "timestamp": "2026-05-11T13:45:00Z",
+              "value": 309.0
+            },
+            {
+              "timestamp": "2026-05-11T14:00:00Z",
+              "value": 308.3
+            },
+            {
+              "timestamp": "2026-05-11T14:15:00Z",
+              "value": 307.5
+            },
+            {
+              "timestamp": "2026-05-11T14:30:00Z",
+              "value": 308.7
+            },
+            {
+              "timestamp": "2026-05-11T14:45:00Z",
+              "value": 309.4
+            },
+            {
+              "timestamp": "2026-05-11T15:00:00Z",
+              "value": 308.0
+            },
+            {
+              "timestamp": "2026-05-11T15:15:00Z",
+              "value": 307.2
+            },
+            {
+              "timestamp": "2026-05-11T15:30:00Z",
+              "value": 308.5
+            },
+            {
+              "timestamp": "2026-05-11T15:45:00Z",
+              "value": 309.1
+            },
+            {
+              "timestamp": "2026-05-11T16:00:00Z",
+              "value": 307.8
+            },
+            {
+              "timestamp": "2026-05-11T16:15:00Z",
+              "value": 306.9
+            },
+            {
+              "timestamp": "2026-05-11T16:30:00Z",
+              "value": 305.4
+            },
+            {
+              "timestamp": "2026-05-11T16:45:00Z",
+              "value": 303.8
+            },
+            {
+              "timestamp": "2026-05-11T17:00:00Z",
+              "value": 301.2
+            },
+            {
+              "timestamp": "2026-05-12T09:00:00Z",
+              "value": 300.5
+            },
+            {
+              "timestamp": "2026-05-12T09:15:00Z",
+              "value": 302.8
+            },
+            {
+              "timestamp": "2026-05-12T09:30:00Z",
+              "value": 304.3
+            },
+            {
+              "timestamp": "2026-05-12T09:45:00Z",
+              "value": 305.9
+            },
+            {
+              "timestamp": "2026-05-12T10:00:00Z",
+              "value": 307.2
+            },
+            {
+              "timestamp": "2026-05-12T10:15:00Z",
+              "value": 308.4
+            },
+            {
+              "timestamp": "2026-05-12T10:30:00Z",
+              "value": 309.1
+            },
+            {
+              "timestamp": "2026-05-12T10:45:00Z",
+              "value": 309.7
+            },
+            {
+              "timestamp": "2026-05-12T11:00:00Z",
+              "value": 310.0
+            },
+            {
+              "timestamp": "2026-05-12T11:15:00Z",
+              "value": 309.5
+            },
+            {
+              "timestamp": "2026-05-12T11:30:00Z",
+              "value": 308.8
+            },
+            {
+              "timestamp": "2026-05-12T11:45:00Z",
+              "value": 307.6
+            },
+            {
+              "timestamp": "2026-05-12T12:00:00Z",
+              "value": 306.3
+            },
+            {
+              "timestamp": "2026-05-12T12:15:00Z",
+              "value": 305.1
+            },
+            {
+              "timestamp": "2026-05-12T12:30:00Z",
+              "value": 306.8
+            },
+            {
+              "timestamp": "2026-05-12T12:45:00Z",
+              "value": 308.2
+            },
+            {
+              "timestamp": "2026-05-12T13:00:00Z",
+              "value": 309.3
+            },
+            {
+              "timestamp": "2026-05-12T13:15:00Z",
+              "value": 309.8
+            },
+            {
+              "timestamp": "2026-05-12T13:30:00Z",
+              "value": 310.0
+            },
+            {
+              "timestamp": "2026-05-12T13:45:00Z",
+              "value": 309.4
+            },
+            {
+              "timestamp": "2026-05-12T14:00:00Z",
+              "value": 308.7
+            },
+            {
+              "timestamp": "2026-05-12T14:15:00Z",
+              "value": 307.5
+            },
+            {
+              "timestamp": "2026-05-12T14:30:00Z",
+              "value": 306.2
+            },
+            {
+              "timestamp": "2026-05-12T14:45:00Z",
+              "value": 305.0
+            },
+            {
+              "timestamp": "2026-05-12T15:00:00Z",
+              "value": 304.3
+            },
+            {
+              "timestamp": "2026-05-12T15:15:00Z",
+              "value": 305.7
+            },
+            {
+              "timestamp": "2026-05-12T15:30:00Z",
+              "value": 306.9
+            },
+            {
+              "timestamp": "2026-05-12T15:45:00Z",
+              "value": 308.1
+            },
+            {
+              "timestamp": "2026-05-12T16:00:00Z",
+              "value": 309.2
+            },
+            {
+              "timestamp": "2026-05-12T16:15:00Z",
+              "value": 309.6
+            },
+            {
+              "timestamp": "2026-05-12T16:30:00Z",
+              "value": 308.9
+            },
+            {
+              "timestamp": "2026-05-12T16:45:00Z",
+              "value": 307.4
+            },
+            {
+              "timestamp": "2026-05-12T17:00:00Z",
+              "value": 305.8
+            },
+            {
+              "timestamp": "2026-05-12T17:15:00Z",
+              "value": 303.6
+            },
+            {
+              "timestamp": "2026-05-12T17:30:00Z",
+              "value": 301.2
+            },
+            {
+              "timestamp": "2026-05-13T09:00:00Z",
+              "value": 303.2
+            },
+            {
+              "timestamp": "2026-05-13T09:15:00Z",
+              "value": 305.8
+            },
+            {
+              "timestamp": "2026-05-13T09:30:00Z",
+              "value": 308.3
+            },
+            {
+              "timestamp": "2026-05-13T09:45:00Z",
+              "value": 310.6
+            },
+            {
+              "timestamp": "2026-05-13T10:00:00Z",
+              "value": 312.9
+            },
+            {
+              "timestamp": "2026-05-13T10:15:00Z",
+              "value": 314.7
+            },
+            {
+              "timestamp": "2026-05-13T10:30:00Z",
+              "value": 316.2
+            },
+            {
+              "timestamp": "2026-05-13T10:45:00Z",
+              "value": 317.8
+            },
+            {
+              "timestamp": "2026-05-13T11:00:00Z",
+              "value": 318.9
+            },
+            {
+              "timestamp": "2026-05-13T11:15:00Z",
+              "value": 319.4
+            },
+            {
+              "timestamp": "2026-05-13T11:30:00Z",
+              "value": 319.8
+            },
+            {
+              "timestamp": "2026-05-13T11:45:00Z",
+              "value": 320.0
+            },
+            {
+              "timestamp": "2026-05-13T12:00:00Z",
+              "value": 319.6
+            },
+            {
+              "timestamp": "2026-05-13T12:15:00Z",
+              "value": 318.7
+            },
+            {
+              "timestamp": "2026-05-13T12:30:00Z",
+              "value": 317.3
+            },
+            {
+              "timestamp": "2026-05-13T12:45:00Z",
+              "value": 316.1
+            },
+            {
+              "timestamp": "2026-05-13T13:00:00Z",
+              "value": 315.4
+            },
+            {
+              "timestamp": "2026-05-13T13:15:00Z",
+              "value": 314.8
+            },
+            {
+              "timestamp": "2026-05-13T13:30:00Z",
+              "value": 315.2
+            },
+            {
+              "timestamp": "2026-05-13T13:45:00Z",
+              "value": 316.0
+            },
+            {
+              "timestamp": "2026-05-13T14:00:00Z",
+              "value": 316.9
+            },
+            {
+              "timestamp": "2026-05-13T14:15:00Z",
+              "value": 317.5
+            },
+            {
+              "timestamp": "2026-05-13T14:30:00Z",
+              "value": 318.1
+            },
+            {
+              "timestamp": "2026-05-13T14:45:00Z",
+              "value": 318.6
+            },
+            {
+              "timestamp": "2026-05-13T15:00:00Z",
+              "value": 319.0
+            },
+            {
+              "timestamp": "2026-05-13T15:15:00Z",
+              "value": 319.3
+            },
+            {
+              "timestamp": "2026-05-13T15:30:00Z",
+              "value": 318.8
+            },
+            {
+              "timestamp": "2026-05-13T15:45:00Z",
+              "value": 318.2
+            },
+            {
+              "timestamp": "2026-05-13T16:00:00Z",
+              "value": 317.4
+            },
+            {
+              "timestamp": "2026-05-13T16:15:00Z",
+              "value": 316.5
+            },
+            {
+              "timestamp": "2026-05-13T16:30:00Z",
+              "value": 315.3
+            },
+            {
+              "timestamp": "2026-05-13T16:45:00Z",
+              "value": 313.8
+            },
+            {
+              "timestamp": "2026-05-13T17:00:00Z",
+              "value": 311.9
+            },
+            {
+              "timestamp": "2026-05-13T17:15:00Z",
+              "value": 309.6
+            },
+            {
+              "timestamp": "2026-05-13T17:30:00Z",
+              "value": 307.1
+            },
+            {
+              "timestamp": "2026-05-13T17:45:00Z",
+              "value": 304.4
+            },
+            {
+              "timestamp": "2026-05-14T09:15:00Z",
+              "value": 300.7
+            },
+            {
+              "timestamp": "2026-05-14T09:30:00Z",
+              "value": 303.2
+            },
+            {
+              "timestamp": "2026-05-14T09:45:00Z",
+              "value": 305.6
+            },
+            {
+              "timestamp": "2026-05-14T10:00:00Z",
+              "value": 307.9
+            },
+            {
+              "timestamp": "2026-05-14T10:15:00Z",
+              "value": 309.3
+            },
+            {
+              "timestamp": "2026-05-14T10:30:00Z",
+              "value": 310.8
+            },
+            {
+              "timestamp": "2026-05-14T10:45:00Z",
+              "value": 312.1
+            },
+            {
+              "timestamp": "2026-05-14T11:00:00Z",
+              "value": 313.4
+            },
+            {
+              "timestamp": "2026-05-14T11:15:00Z",
+              "value": 314.7
+            },
+            {
+              "timestamp": "2026-05-14T11:30:00Z",
+              "value": 315.9
+            },
+            {
+              "timestamp": "2026-05-14T11:45:00Z",
+              "value": 317.2
+            },
+            {
+              "timestamp": "2026-05-14T12:00:00Z",
+              "value": 318.4
+            },
+            {
+              "timestamp": "2026-05-14T12:15:00Z",
+              "value": 319.1
+            },
+            {
+              "timestamp": "2026-05-14T12:30:00Z",
+              "value": 319.6
+            },
+            {
+              "timestamp": "2026-05-14T12:45:00Z",
+              "value": 319.9
+            },
+            {
+              "timestamp": "2026-05-14T13:00:00Z",
+              "value": 320.0
+            },
+            {
+              "timestamp": "2026-05-14T13:15:00Z",
+              "value": 319.7
+            },
+            {
+              "timestamp": "2026-05-14T13:30:00Z",
+              "value": 319.3
+            },
+            {
+              "timestamp": "2026-05-14T13:45:00Z",
+              "value": 318.8
+            },
+            {
+              "timestamp": "2026-05-14T14:00:00Z",
+              "value": 318.1
+            },
+            {
+              "timestamp": "2026-05-14T14:15:00Z",
+              "value": 317.4
+            },
+            {
+              "timestamp": "2026-05-14T14:30:00Z",
+              "value": 316.6
+            },
+            {
+              "timestamp": "2026-05-14T14:45:00Z",
+              "value": 315.8
+            },
+            {
+              "timestamp": "2026-05-14T15:00:00Z",
+              "value": 314.9
+            },
+            {
+              "timestamp": "2026-05-14T15:15:00Z",
+              "value": 314.1
+            },
+            {
+              "timestamp": "2026-05-14T15:30:00Z",
+              "value": 313.2
+            },
+            {
+              "timestamp": "2026-05-14T15:45:00Z",
+              "value": 312.3
+            },
+            {
+              "timestamp": "2026-05-14T16:00:00Z",
+              "value": 311.4
+            },
+            {
+              "timestamp": "2026-05-14T16:15:00Z",
+              "value": 310.2
+            },
+            {
+              "timestamp": "2026-05-14T16:30:00Z",
+              "value": 308.9
+            },
+            {
+              "timestamp": "2026-05-14T16:45:00Z",
+              "value": 307.5
+            },
+            {
+              "timestamp": "2026-05-14T17:00:00Z",
+              "value": 305.8
+            },
+            {
+              "timestamp": "2026-05-14T17:15:00Z",
+              "value": 303.9
+            },
+            {
+              "timestamp": "2026-05-14T17:30:00Z",
+              "value": 301.7
+            }
+          ]
+        }
+      },
+      "tool_name": "detect_threshold_breaches",
+      "tool_call": {
+        "id": 389,
+        "tool_name": "detect_threshold_breaches",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_query_p95_latency_ms",
+          "threshold": 300,
+          "comparator": "gt"
+        }
+      }
+    },
+    "392": {
+      "id": 392,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:03:04",
+      "parent_id": 391,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs",
+        "reconciliation.cross_tier_correlations[0].evidence_ref"
+      ],
+      "content": {
+        "tool_name": "get_time_pattern",
+        "result": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "cache_hit_ratio",
+          "time_pattern": {
+            "by_hour_of_day": {
+              "0": 0.6964285714285714,
+              "1": 0.7,
+              "2": 0.7017857142857142,
+              "3": 0.7035714285714285,
+              "4": 0.7021428571428571,
+              "5": 0.7014285714285714,
+              "6": 0.7003571428571428,
+              "7": 0.6982142857142857,
+              "8": 0.6878571428571428,
+              "9": 0.6451785714285714,
+              "10": 0.6203571428571428,
+              "11": 0.6146428571428572,
+              "12": 0.6148214285714285,
+              "13": 0.615,
+              "14": 0.6148214285714285,
+              "15": 0.6148214285714285,
+              "16": 0.6153571428571428,
+              "17": 0.6214285714285714,
+              "18": 0.6726785714285715,
+              "19": 0.6942857142857143,
+              "20": 0.7016071428571429,
+              "21": 0.7026785714285714,
+              "22": 0.7025,
+              "23": 0.7021428571428571
+            },
+            "by_weekday": {
+              "0": 0.66078125,
+              "1": 0.6586979166666667,
+              "2": 0.6558333333333333,
+              "3": 0.6616666666666666,
+              "4": 0.6578645833333333,
+              "5": 0.6901041666666666,
+              "6": 0.6945833333333333
+            },
+            "n_records": 1344
+          }
+        }
+      },
+      "tool_name": "get_time_pattern",
+      "tool_call": {
+        "id": 391,
+        "tool_name": "get_time_pattern",
+        "args": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "cache_hit_ratio"
+        }
+      }
+    },
+    "394": {
+      "id": 394,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:03:04",
+      "parent_id": 393,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_metric_distribution",
+        "result": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "cache_hit_ratio",
+          "distribution": {
+            "min": 0.58,
+            "max": 0.72,
+            "n_bins": 10,
+            "bins": [
+              {
+                "lo": 0.58,
+                "hi": 0.594,
+                "count": 292
+              },
+              {
+                "lo": 0.594,
+                "hi": 0.608,
+                "count": 23
+              },
+              {
+                "lo": 0.608,
+                "hi": 0.622,
+                "count": 29
+              },
+              {
+                "lo": 0.622,
+                "hi": 0.636,
+                "count": 14
+              },
+              {
+                "lo": 0.636,
+                "hi": 0.6499999999999999,
+                "count": 7
+              },
+              {
+                "lo": 0.6499999999999999,
+                "hi": 0.6639999999999999,
+                "count": 23
+              },
+              {
+                "lo": 0.6639999999999999,
+                "hi": 0.6779999999999999,
+                "count": 56
+              },
+              {
+                "lo": 0.6779999999999999,
+                "hi": 0.692,
+                "count": 200
+              },
+              {
+                "lo": 0.692,
+                "hi": 0.706,
+                "count": 373
+              },
+              {
+                "lo": 0.706,
+                "hi": 0.72,
+                "count": 327
+              }
+            ]
+          }
+        }
+      },
+      "tool_name": "get_metric_distribution",
+      "tool_call": {
+        "id": 393,
+        "tool_name": "get_metric_distribution",
+        "args": {
+          "app_name": "app-07",
+          "tier": "cache",
+          "metric": "cache_hit_ratio"
+        }
+      }
+    },
+    "396": {
+      "id": 396,
+      "status": "resolved",
+      "type": "observation",
+      "agent": "data_layer_analyst",
+      "category": "evidence",
+      "timestamp": "2026-06-04 15:03:04",
+      "parent_id": 395,
+      "cited_by": [
+        "reconciliation.specialist_findings_summary[1].evidence_refs",
+        "reconciliation.drift_check[1].supporting_evidence_refs"
+      ],
+      "content": {
+        "tool_name": "get_summary_statistics",
+        "result": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_connections_p50",
+          "statistics": {
+            "mean": 34.438988095238095,
+            "p50": 34.0,
+            "p90": 45.0,
+            "p95": 45.0
+          }
+        }
+      },
+      "tool_name": "get_summary_statistics",
+      "tool_call": {
+        "id": 395,
+        "tool_name": "get_summary_statistics",
+        "args": {
+          "app_name": "app-07",
+          "tier": "database",
+          "metric": "db_connections_p50"
+        }
+      }
+    },
+    "397": {
+      "id": 397,
+      "status": "resolved",
+      "type": "specialist_finding",
+      "agent": "data_layer_analyst",
+      "category": "decision",
+      "timestamp": "2026-06-04 15:03:29",
+      "parent_id": null,
+      "cited_by": [
+        "recommendation.evidence_refs"
+      ],
+      "content": {
+        "specialist": "data_layer_analyst",
+        "finding_type": "issue_found",
+        "headline": "Cache miss cascade: degraded cache hit ratio (mean 0.67, dropping to 0.61 during peak hours) drives 335 DB latency SLA breaches; root cause is an undersized 3-node cache cluster with no warming and poor key design on the top 3 key patterns.",
+        "primary_tier": "database",
+        "confidence": 0.96,
+        "reasoning_summary": "The cache tier's hit ratio averages 0.669 overall but drops to ~0.61 during weekday business hours (09:00\u201317:00), far below the healthy \u22650.89 band. The top 3 cache key patterns \u2014 rec:user:* (27% miss rate, 3.1M misses), rec:trending:* (30% miss rate, 1.9M misses), and rec:similar:* (38% miss rate, 1.7M misses) \u2014 account for massive query spillover to the database. This cascade pushes db_query_p95_latency_ms to a p95 of 316ms against a 300ms SLA, with 335 recorded breaches concentrated in weekday peak hours. The database itself is healthy \u2014 db_cache_hit_ratio is 0.93, I/O wait p95 is only 6.9ms, and connection pool usage (p95=85) is not saturated \u2014 confirming the root cause lies in the cache layer, not the database. The fix is scaling the cache from 3 to 6 nodes, implementing cache warming for the top-3 key patterns, and redesigning key structures to reduce fragmentation; the before/after evidence shows this restores hit ratio to 0.91 and drops DB p95 latency by ~38%.",
+        "evidence_refs": [
+          341,
+          343,
+          345,
+          347,
+          349,
+          351,
+          353,
+          355,
+          372,
+          374,
+          376,
+          378,
+          380,
+          382,
+          390,
+          392,
+          394,
+          396
+        ]
+      }
+    }
   },
-
-  "hitl_decision": {
-    "_note": "HITL state is filled in after a human reviewer takes action. Empty here because the system just produced the report."
+  "summary": {
+    "unique_refs_cited": 32,
+    "resolved": 32,
+    "dangling": 0,
+    "observation_refs": 30,
+    "specialist_finding_refs": 2
   }
 }

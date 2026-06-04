@@ -244,7 +244,7 @@ class AuditStore:
     def add_harness_event(self, record: HarnessRecord) -> int:
         """Append one event to harness_trail. Returns the inserted row id.
 
-        Used by the three harness modules. The record's id and timestamp
+        Used by the four harness modules. The record's id and timestamp
         fields are ignored (populated by SQLite); the rest are inserted
         as given.
 

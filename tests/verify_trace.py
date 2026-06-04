@@ -1,32 +1,74 @@
 #!/usr/bin/env python3
-"""Walk every sample-run audit trail backward and confirm every reference resolves.
+"""Walk every audit trail and confirm every cited evidence reference resolves.
 
 Run:
-    scripts/verify_trace.sh                # bash wrapper (preferred entry point)
-    uv run python tests/verify_trace.py    # direct Python invocation
+    scripts/verify_trace.sh                               # default: sample_runs/traces/
+    scripts/verify_trace.sh <dir>                         # custom directory
+    uv run python tests/verify_trace.py                   # direct invocation
+    uv run python tests/verify_trace.py <dir>             # custom directory
 
-This script proves each trace satisfies the auditability contract:
+Schema this script targets (the live trace shape produced by
+`src/renderer/`):
 
-    Every node names its parents.
-    A replay script can traverse the whole graph from the final
-    review_packet back to the input_harness step by following references.
+    {
+      "cycle_id": "cycle_<...>",
+      "application_id": "app-NN",
+      "recommendation_row_id": <int>,
+      "recommendation": {composite, reconciliation, reflection},
+      "specialist_findings": [
+        {
+          "id": <int>,
+          "agent": "<specialist_name>",
+          "content": {"evidence_refs": [<int>, ...], ...},
+          "evidence_refs_chain": [{"ref": <int>, "resolved": <bool>, ...}, ...],
+        },
+        ...
+      ],
+      "evidence_chain": {
+        "<id>": {"id": <int>, "type": "observation"|"specialist_finding", ...},
+        ...
+      },
+      "summary": {
+        "unique_refs_cited": <int>,
+        "resolved": <int>,
+        "dangling": <int>,
+        ...
+      },
+    }
 
-Why this matters. The architecture commits to a relational audit trail
-where foreign-key traversal is the primary access pattern (see
-docs/decisions.md, decision #3). This script is the proof: if any
-reference is dangling in any trace, the backward walk fails and the
-script exits non-zero. The Action Harness's evidence_completeness
-check is meant to do the same thing at gate time; this script is what
-a reviewer can run manually to verify the same property.
+What this script verifies (independently of `summary`):
 
-What this script does NOT do. It does not re-run the agents.
-LLM output is non-deterministic at non-zero temperature, so replay
-cannot re-derive the same answer by running the model again. Replay
-reconstructs what happened, not what would happen.
+  1. Every `id` listed in any specialist_finding's `content.evidence_refs`
+     resolves to an `evidence_chain` entry. This is the dangling-ref
+     contract: a specialist may not cite an observation that doesn't exist.
+  2. Every `ref` listed in any specialist_finding's `evidence_refs_chain`
+     resolves, and its `resolved` flag is true.
+  3. Every entry in `evidence_chain` has a non-empty `cited_by` list —
+     evidence_chain is reverse-indexed by the renderer, so an unciteable
+     entry would be a renderer bug.
+  4. The independently-computed counts (unique_refs_cited, observation_refs,
+     specialist_finding_refs, dangling, resolved) match the trace's
+     self-reported `summary` block. A mismatch means either the renderer's
+     summary is wrong or this verifier is wrong; either way it's a
+     contract violation worth surfacing.
 
-Discovery. Every file matching `sample_runs/traces/scenario_NN_trace.json`
-is verified. To add a new trace, drop it in that folder; no script
-changes needed.
+  Renderer's counting convention (matched by this verifier):
+
+      unique_refs_cited       == len(evidence_chain)
+      observation_refs        == count of entries with type == "observation"
+      specialist_finding_refs == count of entries with type == "specialist_finding"
+      dangling                == count of specialist-cited refs not in evidence_chain
+      resolved                == unique_refs_cited - dangling
+
+What this script does NOT do. It does not re-run the agents. LLM output
+is non-deterministic at non-zero temperature, so replay cannot re-derive
+the same answer by running the model again. Replay reconstructs what
+happened, not what would happen.
+
+Discovery. By default, every file matching `sample_runs/traces/*_trace.json`
+is verified. Pass a directory as the first argument to scan a different
+tree (used to verify each `integration-test-*/step4_reports/app-*/
+trace.json` after a live run).
 """
 
 from __future__ import annotations
@@ -35,15 +77,16 @@ import json
 import sys
 from pathlib import Path
 
-TRACES_DIR = (
+DEFAULT_TRACES_DIR = (
     Path(__file__).resolve().parent.parent / "sample_runs" / "traces"
 )
 
 
-def walk_backward(trace: dict) -> tuple[bool, list[str]]:
-    """Walk one audit trail backward and resolve every reference.
+def verify_trace(trace: dict) -> tuple[bool, list[str], dict[str, int]]:
+    """Verify one trace.
 
-    Returns (success, log_lines).
+    Returns (ok, log_lines, counts) where counts is the independently
+    computed {unique_refs_cited, resolved, dangling}.
     """
     log: list[str] = []
     ok = True
@@ -55,139 +98,211 @@ def walk_backward(trace: dict) -> tuple[bool, list[str]]:
         if not success:
             ok = False
 
-    # Build a lookup table of every IDed record.
-    table: dict[str, dict] = {}
+    # Build the universe of resolvable ids from evidence_chain.
+    # Keys are stringified ints; normalize to int for comparison.
+    universe: set[int] = set()
+    observation_count = 0
+    specialist_finding_count = 0
+    evidence_chain = trace.get("evidence_chain", {})
 
-    def register(record: dict, id_field: str, kind: str) -> str | None:
-        if id_field in record and isinstance(record[id_field], str):
-            rid = record[id_field]
-            table[rid] = {"kind": kind, "record": record}
-            return rid
-        return None
+    for key, entry in evidence_chain.items():
+        try:
+            universe.add(int(key))
+        except (TypeError, ValueError):
+            step(f"evidence_chain key {key!r} is not an int", success=False)
+            continue
+        # Cross-check: entry['id'] should agree with the key.
+        if isinstance(entry, dict) and "id" in entry:
+            if str(entry["id"]) != str(key):
+                step(
+                    f"evidence_chain[{key!r}].id={entry['id']} disagrees "
+                    f"with key",
+                    success=False,
+                )
+        # Tally by type for summary cross-check.
+        etype = entry.get("type") if isinstance(entry, dict) else None
+        if etype == "observation":
+            observation_count += 1
+        elif etype == "specialist_finding":
+            specialist_finding_count += 1
+        # cited_by must be non-empty: evidence_chain is reverse-indexed,
+        # so an entry with no citer should never appear here.
+        if isinstance(entry, dict) and not entry.get("cited_by"):
+            step(
+                f"evidence_chain[{key!r}] has empty cited_by — "
+                f"renderer reverse-index would not have surfaced it",
+                success=False,
+            )
 
-    # Register every node by its primary ID.
-    register(trace["input_harness_validation"], "step_id", "input_harness")
-    register(trace["system_mapper"], "step_id", "system_mapper")
-    register(trace["supervisor_decision"], "step_id", "supervisor")
-    for sf in trace["specialist_findings"]:
-        register(sf, "step_id", "specialist_finding")
-        for rs in sf["react_steps"]:
-            register(rs, "step_id", "react_step")
-            if "observation_id" in rs:
-                # Observation IDs are referenced from finding.evidence_refs
-                table[rs["observation_id"]] = {"kind": "observation", "record": rs["observation"]}
-    register(trace["evaluator_records"], "step_id", "evaluator")
-    register(trace["evaluator_records"]["synthesis"], "synthesis_id", "synthesis")
-    for xt in trace["evaluator_records"]["cross_tier_interactions"]:
-        register(xt, "interaction_id", "cross_tier_interaction")
-    register(trace["action_harness_gate"], "step_id", "action_harness_gate")
-    # gate also gets registered under gate_id (alias)
-    if "gate_id" in trace["action_harness_gate"]:
-        table[trace["action_harness_gate"]["gate_id"]] = {
-            "kind": "action_harness_gate", "record": trace["action_harness_gate"],
-        }
-    register(trace["review_packet"], "packet_id", "review_packet")
+    log.append(
+        f"  evidence_chain universe: {len(universe)} ids "
+        f"(observations={observation_count}, "
+        f"specialist_findings={specialist_finding_count})"
+    )
 
-    log.append(f"  registered {len(table)} nodes")
-    log.append("")
-    log.append("  Backward walk from review_packet to inputs:")
+    # Walk every specialist ref and check it resolves.
+    dangling: set[int] = set()
 
-    # Step 1: review_packet -> gate, synthesis, review
-    packet = trace["review_packet"]
-    step(f"review_packet.gate_id {packet.get('gate_id')!r} resolves",
-         packet.get("gate_id") in table)
-    step(f"review_packet.synthesis_id {packet.get('synthesis_id')!r} resolves",
-         packet.get("synthesis_id") in table)
-    step(f"review_packet.review_id {packet.get('review_id')!r} matches review",
-         packet.get("review_id") == trace["review"]["review_id"])
+    specialist_refs: set[int] = set()
+    specialist_findings = trace.get("specialist_findings", [])
+    for sf in specialist_findings:
+        agent = sf.get("agent", "<unknown>")
+        finding_id = sf.get("id", "<no-id>")
 
-    # Step 2: gate -> evaluator, synthesis
-    gate = trace["action_harness_gate"]
-    step(f"gate.evaluator_id {gate.get('evaluator_id')!r} resolves",
-         gate.get("evaluator_id") in table)
-    step(f"gate.synthesis_id {gate.get('synthesis_id')!r} resolves",
-         gate.get("synthesis_id") in table)
-    # The evidence_completeness check should list verified_refs
-    for chk in gate["checks"]:
-        if chk.get("check") == "evidence_completeness":
-            for ref in chk.get("verified_refs", []):
-                step(f"gate.evidence_completeness.verified_refs[{ref!r}] resolves",
-                     ref in table)
+        # content.evidence_refs (the substantive citation list)
+        content_refs = sf.get("content", {}).get("evidence_refs", []) or []
+        for ref in content_refs:
+            specialist_refs.add(ref)
+            if ref not in universe:
+                dangling.add(ref)
+                step(
+                    f"finding[id={finding_id}, agent={agent}]."
+                    f"content.evidence_refs[{ref!r}] is dangling",
+                    success=False,
+                )
 
-    # Step 3: synthesis -> contributing_findings, evidence_refs, cross-tier
-    syn = trace["evaluator_records"]["synthesis"]
-    for fid in syn.get("contributing_findings", []):
-        step(f"synthesis.contributing_findings[{fid!r}] resolves to a specialist_finding",
-             fid in table and table[fid]["kind"] == "specialist_finding")
-    for ref in syn.get("evidence_refs", []):
-        step(f"synthesis.evidence_refs[{ref!r}] resolves", ref in table)
+        # evidence_refs_chain (renderer-side enrichment with resolved flags)
+        for entry in sf.get("evidence_refs_chain", []) or []:
+            ref = entry.get("ref")
+            if ref is None:
+                continue
+            specialist_refs.add(ref)
+            if ref not in universe:
+                dangling.add(ref)
+                step(
+                    f"finding[id={finding_id}, agent={agent}]."
+                    f"evidence_refs_chain entry ref={ref!r} is dangling",
+                    success=False,
+                )
+            elif entry.get("resolved") is False:
+                step(
+                    f"finding[id={finding_id}, agent={agent}]."
+                    f"evidence_refs_chain ref={ref!r} present in universe "
+                    f"but flagged resolved=false",
+                    success=False,
+                )
 
-    # Step 4: drift_check -> target_finding_id
-    for dc in trace["evaluator_records"]["drift_check"]:
-        tfid = dc.get("target_finding_id")
-        step(f"drift_check[{dc['specialist']!r}].target_finding_id {tfid!r} resolves to a specialist_finding",
-             tfid in table and table[tfid]["kind"] == "specialist_finding")
+    if not dangling:
+        step(
+            f"all {len(specialist_refs)} unique refs cited by specialists "
+            f"resolve in evidence_chain"
+        )
 
-    # Step 5: each specialist_finding -> its react_steps and their observations
-    for sf in trace["specialist_findings"]:
-        for ref in sf["finding"].get("evidence_refs", []):
-            step(f"finding[{sf['step_id']!r}].evidence_refs[{ref!r}] resolves to an observation",
-                 ref in table and table[ref]["kind"] == "observation")
-        # All react_steps should be present with observation_ids
-        for rs in sf["react_steps"]:
-            step(f"react_step[{rs['step_id']!r}] has observation_id {rs.get('observation_id')!r}",
-                 "observation_id" in rs and rs["observation_id"] in table)
+    # Match the renderer's counting convention (see module docstring).
+    counts = {
+        "unique_refs_cited": len(universe),
+        "observation_refs": observation_count,
+        "specialist_finding_refs": specialist_finding_count,
+        "resolved": len(universe) - len(dangling),
+        "dangling": len(dangling),
+    }
 
-    return ok, log
+    # Cross-check against trace's self-reported summary.
+    summary = trace.get("summary", {})
+    for key in (
+        "unique_refs_cited",
+        "observation_refs",
+        "specialist_finding_refs",
+        "resolved",
+        "dangling",
+    ):
+        reported = summary.get(key)
+        computed = counts[key]
+        if reported is None:
+            step(f"summary.{key} missing from trace", success=False)
+        elif reported != computed:
+            step(
+                f"summary.{key}={reported} disagrees with independently "
+                f"computed {computed}",
+                success=False,
+            )
+        else:
+            log.append(f"  ✓ summary.{key}={reported} agrees with verifier")
+
+    return ok, log, counts
 
 
 def discover_traces(traces_dir: Path) -> list[Path]:
-    """Return every scenario_NN_trace.json under traces_dir, sorted."""
-    return sorted(traces_dir.glob("scenario_*_trace.json"))
+    """Return every *_trace.json or trace.json under traces_dir, sorted.
+
+    Supports both layouts:
+      - sample_runs/traces/scenario_NN_trace.json
+      - integration-test-*/step4_reports/app-NN/trace.json
+    """
+    by_pattern: set[Path] = set()
+    by_pattern.update(traces_dir.glob("*_trace.json"))
+    by_pattern.update(traces_dir.glob("**/trace.json"))
+    return sorted(by_pattern)
 
 
 def main() -> int:
-    trace_paths = discover_traces(TRACES_DIR)
+    if len(sys.argv) > 1:
+        traces_dir = Path(sys.argv[1]).resolve()
+    else:
+        traces_dir = DEFAULT_TRACES_DIR
+
+    if not traces_dir.exists():
+        print(f"Directory not found: {traces_dir}", file=sys.stderr)
+        return 2
+
+    trace_paths = discover_traces(traces_dir)
     if not trace_paths:
-        print(f"No trace files found under {TRACES_DIR}", file=sys.stderr)
+        print(f"No trace files found under {traces_dir}", file=sys.stderr)
         return 2
 
     overall_ok = True
-    per_trace_results: list[tuple[Path, bool]] = []
+    per_trace_results: list[tuple[Path, bool, dict[str, int]]] = []
 
     for path in trace_paths:
-        trace = json.loads(path.read_text())
+        try:
+            trace = json.loads(path.read_text())
+        except json.JSONDecodeError as exc:
+            print(f"\n{'=' * 70}\n  {path}\n{'=' * 70}")
+            print(f"  ✗ invalid JSON: {exc}")
+            overall_ok = False
+            per_trace_results.append((path, False, {}))
+            continue
+
         print()
         print("=" * 70)
-        print(f"  Auditing {path.name}")
+        rel = (
+            path.relative_to(traces_dir.parent)
+            if path.is_relative_to(traces_dir.parent)
+            else path
+        )
+        print(f"  Auditing {rel}")
         print("=" * 70)
-        ok, log = walk_backward(trace)
+        ok, log, counts = verify_trace(trace)
         for line in log:
             print(line)
-        per_trace_results.append((path, ok))
+        per_trace_results.append((path, ok, counts))
         if not ok:
             overall_ok = False
 
     print()
     print("=" * 70)
-    print("  Summary")
+    print(f"  Summary  ({traces_dir})")
     print("=" * 70)
-    for path, ok in per_trace_results:
+    for path, ok, counts in per_trace_results:
         marker = "✓" if ok else "✗"
-        print(f"  {marker} {path.name}")
+        cited = counts.get("unique_refs_cited", "?")
+        dangling = counts.get("dangling", "?")
+        print(f"  {marker} {path.name}  unique={cited} dangling={dangling}")
     print()
 
     if overall_ok:
-        print("  ✓ PASS. Every parent reference resolves in every trace.")
-        print("        Each chain is fully traversable forward and backward.")
+        print("  ✓ PASS. Every cited evidence ref resolves in every trace,")
+        print("        and every trace's self-reported summary agrees with")
+        print("        an independent walk.")
         print()
         print("  Note: replay reconstructs the recorded reasoning. It does")
         print("        not re-derive answers by re-running the model. LLM")
         print("        output is non-deterministic at non-zero temperature.")
         return 0
     else:
-        print("  ✗ FAIL. At least one reference is dangling in at least one trace.")
-        print("        The trace(s) above marked with ✗ do not satisfy the")
+        print("  ✗ FAIL. At least one reference is dangling or one summary")
+        print("        block disagrees with the independent walk. The")
+        print("        trace(s) above marked with ✗ do not satisfy the")
         print("        auditability contract.")
         return 1
 

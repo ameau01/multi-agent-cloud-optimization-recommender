@@ -23,10 +23,13 @@ sample_runs/
 │   ├── scenario_02_report.md             single-tier (compute / scaling_policy_change)
 │   ├── scenario_07_report.md             cross-tier (cache -> database / cache_capacity_adjustment)
 │   └── scenario_08_report.md             cross-tier (database -> compute / query_cache_optimization)
-├── traces/                               3 audit trails rendered from the composites
+├── traces/                               3 audit trails (JSON + human-readable markdown)
 │   ├── scenario_02_trace.json
+│   ├── scenario_02_trace.md
 │   ├── scenario_07_trace.json
-│   └── scenario_08_trace.json
+│   ├── scenario_07_trace.md
+│   ├── scenario_08_trace.json
+│   └── scenario_08_trace.md
 └── README.md                             (this file)
 ```
 
@@ -89,15 +92,19 @@ that exercises and verifies the evaluator lives in `tests/` and
 
 ## Status of the example outputs
 
-The agents themselves are not yet implemented (see `README.md` and
-`CHANGELOG.md` for current build phase). These reports were generated
-from real dataset content, so the diagnostic conclusions and the
-recommendations are correct for each scenario. The per-specialist
-trace details are illustrative rather than runtime-captured; once the
-agents run, those trace details come from the audit trail.
+These are **real outputs from a live run** of the agent system on
+2026-06-04 (Opus end-to-end, both specialist and evaluator tiers). All
+18 scenarios passed Shape + Correctness + Mid + Rich; the three shown
+here are the canonical demos.
 
-Each trace's top-level `_what_is_real` and `_what_is_illustrative`
-blocks list exactly which fields are which.
+- `cycle_20260604_143726_ddaeaf53` — app-02
+- `cycle_20260604_150000_a952f749` — app-07
+- `cycle_20260604_150610_37995130` — app-08
+
+Every evidence reference in every report resolves to a real
+observation row in the corresponding trace JSON. The trace JSONs are
+machine-readable; the trace markdown files are the same data rendered
+for human review.
 
 ## Traceability model
 

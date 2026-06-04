@@ -80,7 +80,7 @@ audit_records = Table(
 
 
 # ============================================================
-# harness_trail — enforcement events from the three harnesses
+# harness_trail — enforcement events from the four harnesses
 # ============================================================
 # Distinct table from audit_records: the substance the agent worked
 # on (tool calls, findings, decisions) lives there; the enforcement

@@ -6,7 +6,7 @@ Harness gates *cycle-level* transitions: events that no single agent
 owns because they are about the cycle's overall shape rather than any
 one agent's decision.
 
-In Phase 11a.4 there is exactly one check:
+Three checks fire in this harness:
 
   - `check_cycle_completion_legitimate` — fires immediately before the
     `cycle_completed` row is written. Confirms the terminal_state the
@@ -24,9 +24,15 @@ In Phase 11a.4 there is exactly one check:
          that can reject the trigger; any other stage producing this
          label is a bug.
 
-Phase 11b+ will add more checks here as the orchestration story grows
-(validate_specialists_completed before the Evaluator runs,
-should_proceed_to_evaluator at the synthesize decision, etc).
+  - `check_validate_specialists_completed` — fires before the Evaluator
+    runs. Confirms every specialist the Supervisor dispatched actually
+    produced a finding row in audit_records. Without this, the
+    Evaluator could synthesize over partial output.
+
+  - `check_should_proceed_to_evaluator` — fires before the Evaluator
+    runs. Confirms at least one specialist_finding row landed (zero
+    rows means every specialist failed structurally; the Evaluator
+    has nothing to synthesize from).
 """
 
 from __future__ import annotations

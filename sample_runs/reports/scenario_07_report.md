@@ -1,228 +1,95 @@
 # Optimization Recommendation Report
 
-**Scenario.** 07, Cache Miss Cascade
-**Analysis date.** 2026-05-29 (illustrative)
-**Status.** Sample output (agent system v0.1, runtime not yet implemented)
-
-> **What's real in this report.** The diagnostic content, the
-> finding type, tier assignment, action category, telemetry observation
-> values, cross-tier correlation numbers, top cache-key counts, and
-> trade-off scores come from real data in the published dataset for
-> scenario 07. When the agents run, they will produce equivalent
-> content from the same sources.
->
-> **What's illustrative.** Timestamps, durations, the `review_id`, the
-> bundle hash, drift-check verdicts, and the Action Harness gate
-> verdict are placeholders. Those values come from a real review only
-> after the agent system runs (see CHANGELOG.md).
->
-> **What's verifiable today.** Trace structure and the traceability
-> contract. Run `scripts/verify_trace.sh` to confirm every
-> reference in the companion trace JSON resolves.
+**Scenario.** 07
 
 ---
 
 ## Final recommendation
 
-| Field           | Value                                                   |
-|-----------------|---------------------------------------------------------|
-| Finding type    | `issue_found`                                           |
-| Primary tier    | `cache`                                                 |
-| Secondary tier  | `database` (downstream symptom)                         |
-| Action category | `cache_capacity_adjustment`                             |
-| Cost impact     | +$700 / month (reliability spend, not a savings)        |
-| Performance     | Application p95 latency: 458 ms -> 200-260 ms estimated |
-| SLA impact      | 99.9% target restored                                   |
+| Field           | Value                                                                                    |
+|-----------------|------------------------------------------------------------------------------------------|
+| Finding type    | `issue_found`                                                                            |
+| Primary tier    | `cache`                                                                                  |
+| Secondary tier  | `compute`                                                                                |
+| Action category | `cache_capacity_adjustment` — cache tier capacity changes (memory, node count, sharding) |
 
-Scale the Redis cluster from 3 to 6 cache.r6g.large nodes to relieve
-memory pressure (currently 88 to 95% used) and reduce evictions.
-Implement cache warming on the three hottest key patterns
-(`rec:user:*`, `rec:trending:*`, `rec:similar:*`) and redesign these
-keys with sharded prefixes (`rec:u:{shard}:{user_id}`) to distribute
-load evenly across the expanded cluster. Do not scale the database or
-compute tier. They are downstream symptoms, not causes.
+1. **Scale cache cluster from 3 to 6 cache.r6g.large nodes** (evidence_refs 374, 382, 392, 394). The current 3-node cluster cannot serve the working set during peak hours, dropping hit ratio to 0.61. Doubling to 6 nodes distributes the keyspace, reduces per-node eviction pressure, and restores hit ratio to ≥0.89. Cost: +$700/month (current cache tier $700/month → $1,400/month). [evidence_refs 374, 376, 341]
 
+2. **Implement cache warming for the top 3 key patterns** (evidence_ref 355). Pre-populate cache entries before the 09:00 business-hours ramp:
+   - rec:user:* — 3.1M misses, 27% miss rate. Warm user recommendation sets from the recommendation model output at 08:30 daily.
+   - rec:trending:* — 1.9M misses, 30% miss rate. Warm trending recommendation lists at 08:30 daily.
+   - rec:similar:* — 1.7M misses, 38% miss rate. Warm similar-item recommendation sets at 08:30 daily.
+   This eliminates the cold-cache burst at 09:00 that currently causes the sharpest hit-ratio drop (from 0.69 at hour 8 to 0.645 at hour 9, per evidence_ref 392). [evidence_ref 355, 392]
+
+3. **Redesign cache key structures for the top 3 key patterns** (evidence_refs 355, 341). The current default key design for rec:user:*, rec:trending:*, and rec:similar:* produces fragmentation that contributes to the high miss rates. Consolidate per-user recommendation shards into fewer, larger keys to reduce total key count and improve cache memory efficiency. The before/after evidence (evidence_ref 341) confirms this change, combined with actions 1 and 2, raises cache_hit_ratio from 0.65 to 0.91. [evidence_ref 341, 355]
+
+**Do NOT change:**
+- **Compute:** The ASG at 6× m5.large (min=6, max=10, target_tracking) is correctly sized. CPU P95 at 66% during peak (evidence_ref 363) is in the healthy band. The fleet is not scaling toward max=10 because the bottleneck is cache-driven latency, not compute saturation. Scaling compute would not reduce the 6.7M cache misses or the DB overflow they cause. Current cost $3,200/month — leave unchanged. [evidence_refs 335, 363]
+- **Database:** The db.r6g.large with 2 replicas is healthy. db_cache_hit_ratio 0.93 (evidence_ref 349), I/O wait P95 6.9ms (evidence_ref 351), connection pool P95 at 85 (evidence_ref 347), no slow queries (evidence_ref 353). The 335 DB latency breaches are a downstream symptom of cache miss overflow, not a database deficiency. Adding replicas or upsizing the database would absorb overflow at higher cost without fixing the root cause. Current cost $1,900/month — leave unchanged. [evidence_refs 347, 349, 351, 353, 372]
 ---
 
 ## Summary
 
-Cache memory pressure is the root cause. The cache cluster sits at
-94.6% memory with evictions reaching 180 per second, which drives hit
-ratio to 0.669 against the healthy band of >=0.89. Three key patterns
-account for the bulk of misses: `rec:user:*` (3.1M miss), `rec:trending:*`
-(1.9M miss), and `rec:similar:*` (1.7M miss), or 6.7M of about 22.1M
-total accesses.
-
-Misses overflow to the database, pushing query p95 to 316 ms and
-application p95 to 458 ms (300 ms SLA target). Database CPU stays
-healthy at 58% p95, confirming the DB is absorbing rather than
-bottlenecking. Compute is healthy at 70% p95. The fix is contained to
-the cache layer.
+A 3-node cache.r6g.large cluster with no warming and poor key design drops its hit ratio to 0.61 during weekday business hours (09:00–18:00), causing 6.7M cache misses across three key patterns (rec:user:*, rec:trending:*, rec:similar:*) to spill directly to the database, pushing DB P95 latency to 316ms and application P95 latency to 458ms — both breaching the 300ms SLA. Three cache key patterns account for the entirety of the miss cascade: rec:user:* (27% miss rate, 3.1M misses), rec:trending:* (30% miss rate, 1.9M misses), and rec:similar:* (38% miss rate, 1.7M misses); scaling from 3 to 6 nodes with warming and key redesign restores cache_hit_ratio to 0.91 and drops DB P95 latency by 38%. Do NOT scale compute or database: the compute fleet at 6× m5.large with CPU P95 at 66% is correctly sized and not saturated (ASG not scaling toward max=10), and the database at db.r6g.large with 2 replicas is healthy (db_cache_hit_ratio 0.93, I/O wait P95 6.9ms, connection pool P95 85, no slow queries identified).
 
 ---
 
 ## Specialist findings
 
-The Data Layer Analyst covers both cache and database tiers (per
-`docs/agents.md`), so the cache root cause and the DB symptom are
-captured inside one specialist's finding.
+Two specialists were invoked: compute_analyst and data_layer_analyst. No network analyst was invoked because the network tier is null in the topology (evidence_ref 341 shows tier_topology.network = null). The Data Layer Analyst covers both the cache and database tiers per its scope, so the cache root-cause finding and the DB symptom observation are both captured inside one specialist's output. All present tiers (compute, database, cache) have specialist coverage. The System Mapper's topology (evidence_ref 341) shows: compute = 6× m5.large with target_tracking ASG (min 6, max 10); database = db.r6g.large with 2 replicas and 500GB storage; cache = 3× cache.r6g.large nodes with 3600s TTL.
 
-| Agent              | Finding type     | Confidence | Key observation                                                                                                              | Evidence refs                                                                                  |
-|--------------------|------------------|------------|------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
-| System Mapper      | plan_complete    | -          | Tiers present: compute, database, cache. Cross-tier pairs: cache-db, cache-compute.                                          | `sm_001`                                                                                       |
-| Data Layer Analyst | `issue_found`    | High       | Cache 94.6% memory, 180 evictions/sec, hit ratio 0.669 vs 0.89 band. DB query p95 elevated to 316 ms; DB CPU healthy at 58%. | `obs_data_001`, `obs_data_002`, `obs_data_003`, `obs_data_004`, `obs_data_005`, `obs_data_006` |
-| Compute Analyst    | `no_issue_found` | High       | CPU stable at 70% p95. Application latency tracks cache-miss / DB-latency pattern, not compute load.                         | `obs_comp_001`, `obs_comp_002`                                                                 |
-
-The Network Analyst was not invoked. No network tier is present in
-the Terraform.
-
-Every ID in the Evidence refs column resolves to a logged observation
-in `sample_runs/traces/scenario_07_trace.json`. A reviewer can walk
-from any claim to the tool call that produced it.
+| Agent | Finding type | Confidence | Key observation | Evidence refs |
+|---|---|---|---|---|
+| compute_analyst | `issue_found` | high | Application P95 latency breaches the 300ms SLA 360 times during weekday business hours (09:00–18:00), with values ranging from 398–480ms and a bimodal distribution (893 records at 170–201ms off-peak, 360 records at 387–480ms peak). CPU P95 averages ~66% during peak on the 6× m5.large fleet, indicating moderate pressure but not saturation — the ASG is not scaling toward its max of 10, suggesting the latency driver is external to compute. | [329, 331, 333, 335, 337, 339, 357, 359, 361, 363, 365, 367] |
+| data_layer_analyst | `issue_found` | high | The cache tier is the upstream root cause: cache_hit_ratio averages 0.669 overall and drops to ~0.61 during weekday peak hours, far below the healthy ≥0.89 threshold. Three key patterns — rec:user:* (27% miss rate, 3.1M misses), rec:trending:* (30% miss rate, 1.9M misses), and rec:similar:* (38% miss rate, 1.7M misses) — drive massive query spillover to the database, pushing DB P95 latency to 316ms with 335 breaches above 300ms. The database itself is healthy: db_cache_hit_ratio 0.93, I/O wait P95 only 6.9ms, connection pool P95 at 85 (not saturated). The fix is scaling cache from 3 to 6 nodes, implementing warming for the top-3 key patterns, and redesigning key structures; before/after evidence shows this restores hit ratio to 0.91 and drops DB P95 latency by ~38%. | [341, 343, 345, 347, 349, 351, 353, 355, 372, 374, 376, 378, 380, 382, 390, 392, 394, 396] |
 
 ---
 
-## Cross-tier analysis (Evaluator's synthesis step)
+## Cross-tier analysis
 
-**Drift-check.** Both specialist findings are tight. The Data Layer
-Analyst's conclusion that cache is the root cause is supported by
-`obs_data_001` through `obs_data_004` (cache pressure) plus
-`obs_data_006` (DB CPU healthy, so DB is absorbing, not bottlenecking).
-The Compute Analyst's no-issue conclusion is justified by stable CPU
-within the healthy band.
+**Drift-check.**
 
-**Cross-tier correlations.** Three near-perfect zero-lag signals from
-`correlation_evidence.json`:
+- _compute_analyst_ (tight): The Compute Analyst's conclusion that sustained SLA breaches occur during business hours is directly supported by 360 threshold breaches in evidence_ref 357 (all timestamps fall within weekday 09:00–18:00), the bimodal latency distribution in evidence_ref 359 (893 off-peak records vs 360 peak records with a gap between 263ms and 387ms), and the hourly time pattern in evidence_ref 365 showing latency jumping from ~200ms at hour 8 to 355–376ms at hours 9–17. The analyst correctly noted that CPU P95 at ~66% (evidence_ref 329, 363) on 6× m5.large (evidence_ref 335) is under moderate pressure but not saturated, and appropriately flagged that the scaling policy is not driving the fleet toward max=10, suggesting a compute-external bottleneck. This hedging toward a downstream cause is consistent with the data layer analyst's cache findings.
+- _data_layer_analyst_ (tight): The Data Layer Analyst's conclusion that the cache tier is the root cause is supported by multiple independent evidence lines: cache_hit_ratio mean of 0.669 with peak-hour drop to 0.61 (evidence_ref 382, 392), the bimodal cache_hit_ratio distribution with 292 records in the 0.58–0.594 bin corresponding to peak hours (evidence_ref 394), and the top 3 cache key patterns totaling 6.7M misses (evidence_ref 355). The claim that the database is absorbing overflow rather than bottlenecking is confirmed by healthy db_cache_hit_ratio of 0.93 (evidence_ref 349), I/O wait P95 of 6.9ms (evidence_ref 351), connection pool P95 at 85 (evidence_ref 347), and no top queries returned (evidence_ref 353, meaning no individual query pathology). The DB latency time pattern (evidence_ref 380) mirrors the cache hit_ratio degradation pattern (evidence_ref 392) — both shift at hour 9 and recover at hour 18, confirming the causal chain. The 335 DB latency breaches (evidence_ref 390) are temporally co-located with the 360 compute latency breaches (evidence_ref 357). The before/after evidence in evidence_ref 341 projects cache_hit_ratio recovery to 0.91 and DB P95 latency drop of 38% after scaling from 3 to 6 nodes with warming and key redesign.
 
-| Interaction | Tiers              | Coefficient | Lag    | What it means                                                                       |
-|-------------|--------------------|-------------|--------|-------------------------------------------------------------------------------------|
-| `xt_001`    | cache -> database  | -0.961      | 0 min  | Cache misses and DB latency move in lockstep. Misses overflow to the DB.            |
-| `xt_002`    | cache -> compute   | -0.963      | 0 min  | Cache misses and application latency move in lockstep. The cascade reaches the user. |
-| `xt_003`    | cache -> database  | +0.924      | 0 min  | Cache hit ratio tracks DB cache hit ratio. Misses pressure the DB buffer pool too.   |
+**Cross-tier correlations.**
 
-Zero-lag inverse correlations this strong are the signature of an
-upstream cause, not coincidence. Together with the cache memory
-pressure observed directly, they license the cache-first
-recommendation and rule out scaling DB or compute as masking-only
-fixes.
+| Tier A | Tier B | Coefficient | Lag (min) | Interpretation | Evidence ref |
+|---|---|---|---|---|---|
+| cache | database | 0.95 | 0 | Cache hit ratio drops to ~0.61 during business hours (evidence_ref 392), and DB query P95 latency rises to 241–256ms hourly averages in the same window (evidence_ref 380). The two metrics move in lockstep with zero lag: as cache misses increase, queries that would have been served from cache spill directly to the database, elevating DB latency. The 335 DB breaches (evidence_ref 390) occur in the exact same weekday 09:00–18:00 window where cache_hit_ratio is lowest. | `392` |
+| cache | compute | 0.95 | 0 | Cache hit ratio degradation during business hours (evidence_ref 392) drives the application P95 latency spike on compute (evidence_ref 365). Both metrics shift at hour 9 and recover at hour 18. The 360 compute latency breaches (evidence_ref 357) are temporally co-located with the cache hit ratio trough. The compute tier's CPU at ~66% (evidence_ref 363) is not the bottleneck — the latency is dominated by increased response time from cache-miss-driven DB round-trips flowing back through the application layer. | `365` |
+| database | compute | 0.95 | 0 | DB query P95 latency elevation during business hours (evidence_ref 380, hourly averages 241–256ms at hours 9–17) directly contributes to application P95 latency on compute (evidence_ref 365, hourly averages 355–376ms at hours 9–17). The ~100–120ms gap between DB latency and application latency represents application-layer processing overhead. Both breach windows (335 DB breaches in evidence_ref 390, 360 compute breaches in evidence_ref 357) share the same weekday 09:00–18:00 pattern. | `380` |
 
-**Conflict resolution.** No specialist disagreement. The Compute
-Analyst's `no_issue_found` is consistent with the Data Layer Analyst's
-finding. Both point at cache as the lever.
+**Conflict resolution.** No specialist disagreement. Both specialists found issues during the same business-hours window and their findings are complementary, not contradictory. The compute analyst identified the symptom (P95 latency 430–480ms, SLA breach) and correctly hedged that the driver might be compute-external. The data layer analyst identified the root cause (cache miss cascade from a 3-node cluster with 0.61 peak hit ratio, driving DB overflow) and confirmed the database is healthy (absorbing, not bottlenecking). The causal chain is unambiguous: cache misses → DB query overflow → elevated DB latency → elevated application P95 latency on compute. The actionable claim belongs to the cache tier; the compute and database tiers are symptoms, not causes. The recommendation should target the cache layer per the data layer analyst's proposal.
 
 ---
 
 ## Trade-off analysis
 
-| Dimension   | Score         | Note                                                                                                                    |
-|-------------|---------------|-------------------------------------------------------------------------------------------------------------------------|
-| Cost        | -$700 / month | Cache tier doubles from $700 to $1,400. Compute and database tiers unchanged.                                           |
-| Performance | +56% p95      | Application p95 from 458 ms to 200-260 ms; cache hit ratio from 0.65 to 0.91.                                           |
-| Reliability | SLA restored  | p95 < 300 ms target met. DB query p95 expected to drop about 38%.                                                       |
-| Risk        | Moderate      | Hot-shard imbalance if `rec:user:*` cardinality is skewed; mitigated by deploying key redesign with the node expansion. |
+| Dimension | Value | Note |
+|---|---|---|
+| cost | +$700/month (+12%) | Cache tier doubles from $700 to $1,400/month by scaling from 3 to 6 cache.r6g.large nodes. Compute ($3,200) and database ($1,900) unchanged. Total moves from $5,800 to $6,500/month. This is a modest increase relative to the total infrastructure spend. |
+| performance | P95 latency from 458ms to 200-260ms (-43% to -57%) | Application P95 latency drops from 458ms (360 SLA breaches) to the 200-260ms band, well within the 300ms SLA. DB P95 latency drops by ~38% from 316ms to ~196ms as 6.7M cache misses are eliminated. Cache hit ratio rises from 0.61 (peak) / 0.669 (mean) to 0.91. |
+| reliability | 360 SLA breaches eliminated; 99.9% availability restored | All 360 application-tier SLA breaches and all 335 database-tier latency breaches occurred during weekday business hours 09:00-18:00 due to cache miss cascade. Restoring cache hit ratio to 0.91 eliminates the cascade, returning both tiers to within-SLA bands during peak hours. |
+| risk | Low — additive capacity, no destructive changes | All three actions (add 3 nodes, implement warming, redesign keys) are additive. No existing nodes are removed, no instance classes are changed, no database or compute configuration is modified. The before/after evidence (evidence_ref 341) validates the projected outcome. The primary risk is that key redesign requires application-level code changes, which carry deployment risk, but the cache warming and node scaling can be deployed independently as immediate mitigations. |
 
-The cost line is intentionally negative. This is a reliability
-investment, not a cost-reduction recommendation. The trade-off
-exchange is explicit: $700/month at the cache tier buys SLA compliance
-for a tier-1 recommender service.
-
-A note on alternatives. Scaling the database or compute tier would
-move metrics in the right direction by absorbing more of the overflow,
-but neither addresses the upstream miss rate. The three zero-lag
-cross-tier correlations are why the recommendation is specifically
-"fix the cache" and not "scale whatever looks busy."
-
----
-
-## Evidence anchors
-
-| Source                                               | Observations captured                          | What it supports                                                   |
-|------------------------------------------------------|------------------------------------------------|--------------------------------------------------------------------|
-| `cache_telemetry.json`                               | `obs_data_001`, `obs_data_002`, `obs_data_003` | Hit ratio 0.669; memory 94.6% p95; evictions 180/sec p95.          |
-| `metadata.scenario_specific_evidence.top_cache_keys` | `obs_data_004`                                 | Top 3 key patterns and their hit/miss counts.                      |
-| `database_telemetry.json`                            | `obs_data_005`, `obs_data_006`                 | DB query p95 316 ms (elevated); DB CPU 58% p95 (healthy).          |
-| `compute_telemetry.json`                             | `obs_comp_001`, `obs_comp_002`                 | CPU stable at 70% p95; app latency 458 ms p95 vs 300 ms SLA.       |
-| `correlation_evidence.json`                          | `xt_001`, `xt_002`, `xt_003`                   | Three zero-lag near-perfect correlations establishing the cascade. |
-
-Every claim in this report resolves to one of the source-plus-observation
-pairs above. The observation IDs are logged in
-`sample_runs/traces/scenario_07_trace.json`.
+This is a reliability investment, not a cost-reduction recommendation. The trade-off exchange is explicit: +$700/month (12% increase) buys elimination of 360 SLA breaches and restores application P95 latency from 458ms to the 200-260ms band. The cost-per-breach-eliminated is approximately $1.94/month per breach — a trivial unit cost for SLA compliance. Two alternatives were considered and rejected. First, scaling the database (adding replicas or upsizing from db.r6g.large) would absorb more of the overflow queries at higher cost (+$950/month per replica) without fixing the upstream miss rate — the cache would still produce 6.7M misses, and those queries would still round-trip to the database, just on a larger fleet. Second, scaling compute (increasing ASG min or upsizing from m5.large) would not reduce latency at all because the bottleneck is cache-miss-driven response time, not CPU saturation — CPU P95 at 66% confirms the compute tier has headroom. The cache tier is the only intervention that addresses the root cause: insufficient cache capacity and absent warming create the miss cascade that propagates to both downstream tiers.
 
 ---
 
 ## Evaluator confidence
 
-**High.** Drift-check tight on both specialists. Three independent
-zero-lag cross-tier correlations all point to cache as the upstream
-cause. The "DB CPU healthy" observation (`obs_data_006`) is the
-load-bearing check that ruled out the DB-bottleneck alternative. The
-recommended action (cache scaling plus warming plus key redesign)
-follows standard patterns with well-understood trade-offs.
+**High.** Drift-check tight on both specialists. The recommendation is licensed by four load-bearing observations: (1) the cache hit ratio peak-hour drop to 0.61 (evidence_ref 392), which establishes the upstream cause; (2) the top-3 key pattern miss volumes totaling 6.7M misses (evidence_ref 355), which quantifies the overflow mechanism; (3) the DB health indicators — db_cache_hit_ratio 0.93 (evidence_ref 349), I/O wait P95 6.9ms (evidence_ref 351), no slow queries (evidence_ref 353) — which rule out the database-bottleneck alternative and confirm the DB is absorbing, not generating, the latency; and (4) the before/after evidence (evidence_ref 341) showing cache_hit_ratio recovery from 0.65 to 0.91 and DB P95 latency reduction of 38% after the proposed intervention, which validates the projected outcome rather than leaving it as a hypothesis. Three independent zero-lag cross-tier correlations (cache→DB, cache→compute, DB→compute) all point to cache as the single upstream cause. The compute CPU P95 at 66% (evidence_ref 363) on a fleet not scaling toward max=10 is the load-bearing negative check that ruled out compute as a contributing factor. Cost impact is committed: +$700/month derived from the $700 current cache tier cost (evidence_ref 376) doubled by scaling from 3 to 6 same-class nodes.
+
 
 ---
 
-## How to verify this report
+## Provenance
 
-This report is the human-readable summary of the review. The full
-audit trail is `sample_runs/traces/scenario_07_trace.json`.
+- Cycle: cycle_20260604_150000_a952f749
+- Application: app-07
+- Evidence refs (audit_records ids): [368, 397]
 
-The traceability contract:
+Inspect the full audit + harness trail with:
 
-- **Each claim in the report carries an evidence_ref ID** (visible
-  in the Specialist findings and Evidence anchors tables).
-- **Every ID resolves to a specific logged observation** in the trace
-  JSON. The resolution is a lookup, not an inference.
-- **The trace records each ReAct step**: thought, action, observation,
-  observation_id. A reviewer can walk from any cited ID back to the
-  tool call that produced it.
-
-**Today:** `scripts/verify_trace.sh` runs the
-verification externally. It walks every trace under `sample_runs/traces/`
-and confirms each parent reference resolves. Exits non-zero if any
-pointer is dangling.
-
-**When the agent system lands:** the Action Harness's
-`evidence_completeness` check runs the same logic at gate time on every
-live review. The `action_harness_gate.checks[1].verified_refs` field in
-the trace is what carries the result. A dangling reference would fail
-the gate and the report would not be surfaced for review.
-
-Same contract, two enforcement points. `scripts/verify_trace.sh` is the
-today-substitute; the gate is the runtime check that follows when the
-agents land.
-
-## Replayability
-
-The trace is structured so a reviewer can walk forward or backward
-through the chain without inference:
-
-- **Backward walk** from `review_packet` -> `gate` -> `synthesis` ->
-  `drift_checks` and `cross_tier_interactions` -> `specialist_findings`
-  -> `react_steps` -> `observations`. Every parent reference resolves
-  to a logged node.
-- **Forward walk** is the chronological order in the trace JSON.
-- **Verification:** run `scripts/verify_trace.sh` to confirm
-  every reference resolves cleanly. The script walks the chain
-  backward and exits non-zero if any pointer is dangling.
-
-The honest scope of "replayability." The recorded reasoning chain is
-complete and traversable in both directions. Replay reconstructs
-**what happened**. It does not re-derive answers by re-running the
-model. LLM output at non-zero temperature is non-deterministic; the
-audit trail captures the reasoning that occurred, not a reproducible
-recipe for re-deriving it. This is true of every LLM-based system and
-is acknowledged here explicitly.
-
----
-
-## Handoff
-
-| Field             | Value                                       |
-|-------------------|---------------------------------------------|
-| State             | Ready for human review                      |
-| Review packet     | `traces/scenario_07_review_packet.json`     |
-| Audit trail       | review_id `rev_c8d4e5f2`                    |
-| Trace walkthrough | `sample_runs/traces/scenario_07_trace.json` |
-
-A human reviewer can walk the audit trail by `review_id` to see every
-thought, tool call, and observation logged during this analysis.
+    scripts/show_audit_trail.sh app-07 cycle_20260604_150000_a952f749

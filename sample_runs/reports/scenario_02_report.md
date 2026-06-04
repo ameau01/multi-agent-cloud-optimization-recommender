@@ -1,24 +1,6 @@
 # Optimization Recommendation Report
 
-**Scenario.** 02, Spiky Compute Load
-**Analysis date.** 2026-05-29 (illustrative)
-**Status.** Sample output (agent system v0.1, runtime not yet implemented)
-
-> **What's real in this report.** The diagnostic content, the
-> finding type, tier assignment, action category, telemetry observation
-> values, time-pattern detection, infrastructure context, and trade-off
-> scores come from real data in the published dataset for scenario 02.
-> When the agents run, they will produce equivalent content from the
-> same sources.
->
-> **What's illustrative.** Timestamps, durations, the `review_id`, the
-> bundle hash, drift-check verdicts, and the Action Harness gate
-> verdict are placeholders. Those values come from a real review only
-> after the agent system runs (see CHANGELOG.md).
->
-> **What's verifiable today.** Trace structure and the traceability
-> contract. Run `scripts/verify_trace.sh` to confirm every
-> reference in the companion trace JSON resolves.
+**Scenario.** 02
 
 ---
 
@@ -28,173 +10,81 @@
 |-----------------|--------------------------------------------------------------|
 | Finding type    | `issue_found`                                                |
 | Primary tier    | `compute`                                                    |
-| Secondary tier  | none (single-tier topology)                                  |
-| Action category | `scaling_policy_change`                                      |
-| Cost impact     | -$2,496 / month (48% savings)                                |
-| Performance     | Application p95 latency: 572 ms peak -> 200-280 ms estimated |
-| SLA impact      | 99.9% target preserved during spike windows                  |
+| Action category | `scaling_policy_change` — auto-scaling policy and thresholds |
 
-Replace the fixed 6 x m5.large fleet with a scheduled auto-scaling
-group: 3 instances off-peak (weekday nights and weekends), 6 instances
-during weekday daytime, 9 instances during the two predictable spike
-windows (weekdays 09:45-11:15 and 14:45-16:15 UTC). Layer a
-target-tracking policy (CPU target 50%) on top as a reactive safety net.
+1. **Create an ASG with predictive auto-scaling for the 6× m5.large fleet** (refs 49, 55, 57, 61):
+   - Instance class: m5.large (retain current class — memory p95=63.8% on m5.large is healthy; downsizing to m5.medium would halve RAM to 4 GiB and push memory utilization into an unsafe band).
+   - ASG min (baseline): 4 instances.
+   - ASG max: 9 instances.
+   - Scaling trigger: cpu_p95 > 65% sustained for 2 consecutive data points (5-minute intervals).
+   - Scale-out action: add instances in increments of 2 until CPU drops below 65% or max (9) is reached.
+   - Scale-in action: remove 1 instance when cpu_p95 < 50% sustained for 15 minutes, down to min (4).
+   - Pre-warm: enable predictive scaling with 30-minute look-ahead, seeded from the weekday 10:00/15:00 pattern. This pre-warms 5 additional instances by 09:30 and 14:30 on weekdays.
+   - Cooldown: 300 seconds between scale actions.
 
+2. **Projected post-change fleet behavior:**
+   - Off-peak (20 of 24 weekday hours + all weekend): 4× m5.large, CPU 45–65% — within healthy band.
+   - Peak (weekday 10:00–10:59, 15:00–15:59): 9× m5.large, CPU 60–64% — SLA-compliant with headroom.
+   - Latency P95 at peak: projected 180–240ms (current off-peak P50=194.8ms is the best proxy for unconstrained latency; with CPU at 62% instead of 93%, latency returns to this band).
+
+3. **Do NOT change:**
+   - Do NOT add database, cache, or network tiers — none exist in the infrastructure (ref 53: $0.00 for all three), and no evidence suggests they are needed.
+   - Do NOT downsize to m5.medium — memory p95=63.8% (ref 45) on m5.large (8 GiB) would become ~127.6% on m5.medium (4 GiB), causing OOM failures.
+   - Do NOT increase the fixed fleet count (e.g., to 9 permanently) — this would cost $7,800/mo (+$2,600/mo) instead of the ~$3,724/mo achieved by auto-scaling, wasting $4,076/mo in off-peak idle capacity.
 ---
 
 ## Summary
 
-A compute-only deployment is comfortable at baseline (CPU p50 around
-34%) but catastrophically under-provisioned during two predictable
-daily spike windows on weekdays. The spikes hold on 11 of 14 observed
-days, with peak CPU at 96% and application p95 latency at 572 ms,
-breaching the 300 ms SLA target.
-
-The pattern is periodic and well-aligned with checkout-traffic
-timing, which makes it addressable by scheduled scaling. Reactive
-auto-scaling alone would lag the spike onset by 5 to 10 minutes and
-miss the early burst.
+A fixed 6× m5.large fleet with scaling_policy=none saturates at 88–96% CPU during two predictable one-hour weekday windows (10:00 and 15:00), cascading into 80 latency breaches reaching 438–572ms against the 300ms P95 SLA target. All 80 CPU breaches above 80% are perfectly timestamp-aligned with all 80 latency breaches above 300ms, confirming that insufficient peak compute capacity is the sole mechanism — the fleet is binary: healthy at 30–43% CPU off-peak, saturated at 88–96% during peaks, with zero observations in between. Database, cache, and network tiers are absent from the infrastructure ($0.00 spend each per ref 53), so no other tier requires action; the entire intervention is scoped to compute auto-scaling policy.
 
 ---
 
 ## Specialist findings
 
-Only the Compute Analyst was invoked. The System Mapper observed that
-no database, cache, or network tier is present in the Terraform, so no
-other specialists had any tier to read.
+Only the Compute Analyst was invoked. The System Mapper's cost breakdown (evidence_ref=53) shows $0.00 for database, cache, and network tiers, indicating these tiers are not present in the app-02 infrastructure. Consequently, neither the Data Layer Analyst nor the Network Analyst was invoked — there are no database, cache, or network resources to analyze. The entire application stack is a compute-only deployment: 6× m5.large instances with no backing data store or cache layer visible in the infrastructure configuration. This means the compute tier is the sole tier available for diagnosis, and any performance issue must be attributable to compute capacity or configuration.
 
-| Agent           | Finding type  | Confidence | Key observation                                                                                                               | Evidence refs                                                  |
-|-----------------|---------------|------------|-------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
-| System Mapper   | plan_complete | -          | Single tier present: compute. No cross-tier pairs to analyze.                                                                 | `sm_001`                                                       |
-| Compute Analyst | `issue_found` | High       | Fixed 6-instance fleet, no ASG. CPU spikes to 96% in two predictable daily weekday windows; p95 latency 572 ms vs 300 ms SLA. | `obs_comp_001`, `obs_comp_002`, `obs_comp_003`, `obs_comp_004` |
-
-Every ID in the Evidence refs column resolves to a logged observation
-in `sample_runs/traces/scenario_02_trace.json`. A reviewer can walk
-from any claim to the tool call that produced it.
+| Agent | Finding type | Confidence | Key observation | Evidence refs |
+|---|---|---|---|---|
+| compute_analyst | `issue_found` | high | The fixed 6× m5.large fleet with no auto-scaling policy hits CPU saturation (88–96% p95) exclusively during two recurring weekday one-hour windows (10:00 and 15:00), producing exactly 80 application latency SLA breaches (438–572ms vs the 300ms target) that are perfectly timestamp-aligned with the CPU spikes. Outside these windows, CPU sits in a healthy 30–43% band and latency remains well under SLA, confirming that insufficient peak compute capacity — not a systemic overload or data-layer bottleneck — is the root cause. | [43, 45, 47, 49, 51, 53, 55, 57, 59, 61] |
 
 ---
 
-## Cross-tier analysis (Evaluator's synthesis step)
+## Cross-tier analysis
 
-**Drift-check.** The single specialist finding is tight. The
-time-pattern observation (`obs_comp_002`) directly supports the
-recommendation for scheduled scaling rather than reactive scaling.
+**Drift-check.**
 
-**Cross-tier interactions.** None. `correlation_evidence.json` is
-empty for scenario 02 because no other tier is present to correlate
-against. The Evaluator records this as an empty
-`cross_tier_interactions` array rather than skipping the step, so
-downstream consumers can distinguish "no interactions found" from "no
-interactions checked."
+- _compute_analyst_ (tight): The Compute Analyst's conclusion that a fixed fleet without auto-scaling causes SLA breaches during predictable peak windows is tightly supported by converging evidence from multiple independent observations. The bimodal CPU distribution (ref 55) shows 1,264 records in the 30–43% healthy band and 80 records in 88–96% with zero values between, ruling out gradual degradation. The time-pattern analysis (ref 57) isolates the spikes to exactly hours 10 and 15 on weekdays (avg ~76.5% vs 31–39% for all other hours). The 80 CPU breaches above 80% (ref 61) are perfectly timestamp-aligned with the 80 latency breaches above 300ms SLA (ref 59), establishing direct causation from CPU saturation to latency degradation. The configuration (ref 49) confirms scaling_policy=none with no ASG bounds, explaining why the fleet cannot absorb these predictable demand peaks. Memory at p95=63.8% (ref 45) is healthy, ruling out memory pressure as a contributing factor. The cost data (ref 53) confirms no other tiers exist, so the analyst correctly scoped the issue to compute alone.
 
-**Conflict resolution.** Not applicable; only one specialist produced
-a finding.
+**Conflict resolution.** No specialist disagreement. Only one specialist (compute_analyst) was invoked because database, cache, and network tiers are absent from the app-02 infrastructure (all show $0.00 spend in ref 53). The compute analyst's finding of issue_found is the sole actionable claim and will form the basis of the recommendation.
 
 ---
 
 ## Trade-off analysis
 
-| Dimension   | Score           | Note                                                                                |
-|-------------|-----------------|-------------------------------------------------------------------------------------|
-| Cost        | +$2,496 / month | 48% reduction. Blended average of 3.7 instances vs current fixed 6.                 |
-| Performance | +51% p95        | Application p95 from 572 ms peak to 200-280 ms; CPU peak from 96% to 65%.           |
-| Reliability | SLA restored    | p95 < 300 ms target met during spike windows with 9-instance headroom.              |
-| Risk        | Low to moderate | Spike timing may shift seasonally; target-tracking policy mitigates within 5-7 min. |
+| Dimension | Value | Note |
+|---|---|---|
+| cost | -$1,476/month (28.4% reduction) | Current $5,200/mo for 6× fixed m5.large drops to ~$3,724/mo with auto-scaling (weighted avg ~4.3 instances). Savings come entirely from eliminating off-peak over-provisioning — 4 instances handle 30–43% CPU load that currently runs on 6. No new tier costs introduced; database, cache, and network remain absent at $0. |
+| performance | P95 latency from 487.5ms to 180–240ms; 80 SLA breaches eliminated | Peak CPU drops from 88–96% on 6 instances to 60–64% on 9 instances, removing the CPU saturation that drove latency to 438–572ms during weekday 10:00/15:00 windows. Off-peak latency is already healthy (P50=194.8ms); the change restores peak latency to this unconstrained baseline. All 80 latency breaches above the 300ms SLA target are eliminated. |
+| reliability | SLA compliance restored from ~94% to 99.9%+ during peak windows | 80 of 1,344 observation intervals breached the 300ms P95 SLA (5.95% breach rate). With peak CPU at 60–64% instead of 88–96%, these breaches are eliminated. The ASG min=4 ensures baseline capacity never drops below the level needed for off-peak traffic (CPU 45–65%), and the 30-minute pre-warm prevents cold-start latency at peak onset. |
+| risk | Low — predictive scaling adds operational complexity but is mitigated by deterministic peak pattern | Primary risk is auto-scaling lag if peak timing shifts or a novel traffic pattern emerges. This is mitigated by the extremely deterministic bimodal pattern (zero CPU observations between 43% and 88%, peaks locked to weekday hours 10 and 15). The 30-minute pre-warm and cpu_p95 > 65% reactive trigger provide a two-layer safety net. Secondary risk: reducing from 6 to 4 off-peak instances raises off-peak CPU ceiling from 43% to 64.5% — still within the healthy band but with less headroom for unexpected off-peak spikes. The scale-out trigger at 65% catches any such spike before it reaches breach territory. |
 
-This is the unusual case where cost savings and reliability move in
-the same direction. The fixed fleet over-provisions off-peak (paying
-for capacity that idles) and under-provisions during spikes (failing
-SLA). Scheduled scaling fixes both at once.
-
----
-
-## Evidence anchors
-
-| Source                                             | Observations captured | What it supports                                                 |
-|----------------------------------------------------|-----------------------|------------------------------------------------------------------|
-| `compute_telemetry.json` (cpu_p95)                 | `obs_comp_001`        | CPU distribution: p95 91.2%, peak 95.9%, stddev 14.1%.           |
-| `compute_telemetry.json` (cpu_p95 time pattern)    | `obs_comp_002`        | Two daily weekday spike windows; 11 of 14 days hold the pattern. |
-| `compute_telemetry.json` (application_p95_latency) | `obs_comp_003`        | p95 487.5 ms, peak 572.4 ms vs 300 ms SLA threshold.             |
-| `main.tf`                                          | `obs_comp_004`        | 6 x m5.large fixed fleet, no ASG, no scaling policy.             |
-
-Every claim in this report resolves to one of the source-plus-observation
-pairs above. The observation IDs are logged in
-`sample_runs/traces/scenario_02_trace.json`.
+This is the rare recommendation that improves all three axes simultaneously: cost decreases, performance improves, and reliability is restored. The mechanism is not a trade-off exchange but an elimination of waste — the fixed fleet is simultaneously over-provisioned 94% of the time (6 instances where 4 suffice) and under-provisioned 6% of the time (6 instances where 9 are needed). Auto-scaling resolves both failures with a single policy change. The alternative of scaling up to a fixed 9-instance fleet was explicitly rejected: it would cost $7,800/mo (+$2,600/mo over current) while leaving $4,076/mo of off-peak idle capacity, versus $3,724/mo with auto-scaling. The alternative of downsizing instance class to m5.medium was rejected because memory p95=63.8% on 8 GiB (m5.large) would exceed physical RAM on 4 GiB (m5.medium). The directional logic is that a predictable, bimodal workload is the ideal auto-scaling candidate — the pattern is deterministic enough for predictive pre-warming yet metric-detectable enough for reactive fallback.
 
 ---
 
 ## Evaluator confidence
 
-**High.** Drift-check tight on the single specialist. The time-pattern
-signal (`obs_comp_002`) is the load-bearing observation: it converts a
-"CPU is sometimes high" claim into a "CPU spikes are scheduled and
-predictable" claim, which is what licenses scheduled scaling as the
-right tool. The recommendation follows standard ASG patterns with
-well-understood trade-offs.
+**High.** Drift-check tight on the sole specialist invoked. The load-bearing observations are: (1) the bimodal CPU distribution (ref 55) showing exactly zero records between 43% and 88%, which establishes that demand is binary (healthy or saturated) with no intermediate state — this rules out gradual degradation, noisy-neighbor effects, or misconfigured application logic as alternative explanations; (2) the perfect 80-for-80 timestamp alignment between CPU breaches >80% (ref 61) and latency breaches >300ms (ref 59), which establishes direct causation from CPU saturation to SLA violation — if even a few latency breaches occurred without corresponding CPU breaches, an alternative root cause would need consideration; (3) the scaling_policy=none configuration (ref 49), which confirms the fleet has no mechanism to respond to demand changes, making the policy gap the actionable root cause rather than a capacity shortfall in the instance class or count. The absence of database, cache, and network tiers (ref 53, $0.00 across all three) is the load-bearing negative observation — it eliminates the possibility of a hidden data-layer or network bottleneck masquerading as a compute issue, and licenses scoping the entire intervention to compute alone. The cost derivation is arithmetic from the per-instance cost ($866.67/mo from $5,200/6) and the weighted instance-hour calculation, not estimated.
+
 
 ---
 
-## How to verify this report
+## Provenance
 
-This report is the human-readable summary of the review. The full
-audit trail is `sample_runs/traces/scenario_02_trace.json`.
+- Cycle: cycle_20260604_143726_ddaeaf53
+- Application: app-02
+- Evidence refs (audit_records ids): [62]
 
-The traceability contract:
+Inspect the full audit + harness trail with:
 
-- **Each claim in the report carries an evidence_ref ID** (visible
-  in the Specialist findings and Evidence anchors tables).
-- **Every ID resolves to a specific logged observation** in the trace
-  JSON. The resolution is a lookup, not an inference.
-- **The trace records each ReAct step**: thought, action, observation,
-  observation_id. A reviewer can walk from any cited ID back to the
-  tool call that produced it.
-
-**Today:** `scripts/verify_trace.sh` runs the
-verification externally. It walks every trace under `sample_runs/traces/`
-and confirms each parent reference resolves. Exits non-zero if any
-pointer is dangling.
-
-**When the agent system lands:** the Action Harness's
-`evidence_completeness` check runs the same logic at gate time on every
-live review. The `action_harness_gate.checks[1].verified_refs` field in
-the trace is what carries the result. A dangling reference would fail
-the gate and the report would not be surfaced for review.
-
-Same contract, two enforcement points. `scripts/verify_trace.sh` is the
-today-substitute; the gate is the runtime check that follows when the
-agents land.
-
-## Replayability
-
-The trace is structured so a reviewer can walk forward or backward
-through the chain without inference:
-
-- **Backward walk** from `review_packet` -> `gate` -> `synthesis` ->
-  `drift_checks` -> `specialist_findings` -> `react_steps` ->
-  `observations`. Every parent reference resolves to a logged node.
-- **Forward walk** is the chronological order in the trace JSON.
-- **Verification:** run `scripts/verify_trace.sh` to confirm
-  every reference resolves cleanly. The script walks the chain
-  backward and exits non-zero if any pointer is dangling.
-
-The honest scope of "replayability." The recorded reasoning chain is
-complete and traversable in both directions. Replay reconstructs
-**what happened**. It does not re-derive answers by re-running the
-model. LLM output at non-zero temperature is non-deterministic; the
-audit trail captures the reasoning that occurred, not a reproducible
-recipe for re-deriving it. This is true of every LLM-based system and
-is acknowledged here explicitly.
-
----
-
-## Handoff
-
-| Field             | Value                                       |
-|-------------------|---------------------------------------------|
-| State             | Ready for human review                      |
-| Review packet     | `traces/scenario_02_review_packet.json`     |
-| Audit trail       | review_id `rev_b7c3d4e1`                    |
-| Trace walkthrough | `sample_runs/traces/scenario_02_trace.json` |
-
-A human reviewer can walk the audit trail by `review_id` to see every
-thought, tool call, and observation logged during this analysis.
+    scripts/show_audit_trail.sh app-02 cycle_20260604_143726_ddaeaf53
