@@ -1,0 +1,57 @@
+# Two services for the multi-agent cloud-optimization recommender.
+#
+# `demo` — hermetic mock-mode demo (hiring manager path)
+#   `docker compose up demo`
+#   No API key, no network, no setup. Replays a vendored cycle and writes
+#   ./demo-output/report.md (MOCK MODE banner at the top).
+#
+# `live-llm` — real LLM run on one scenario (developer / power-user path)
+#   `cp .env.example .env && $EDITOR .env`   # add ANTHROPIC_API_KEY or OPENAI_API_KEY
+#   `docker compose up live-llm`             # runs app-08 by default
+#   `APP=app-12 docker compose up live-llm`  # override to a different app
+#   Writes ./demo-output/report.md (no MOCK MODE banner — this is real).
+#
+# After either service exits, the rendered files are on your host at:
+#   ./demo-output/report.md   (open this — it's the human-readable recommendation)
+#   ./demo-output/trace.md    (human-readable audit trail)
+#   ./demo-output/trace.json  (machine-readable audit trail)
+
+services:
+
+  # ====================================================================
+  # demo — mock mode, hermetic, no API key
+  # ====================================================================
+  demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: multi-agent-cloud-optimization-recommender:demo
+    container_name: agent-recommender-demo
+    volumes:
+      - ./demo-output:/out
+    environment:
+      - AUDIT_DB_PATH=/out/.demo_audit.db
+    command: ["./scripts/run_mock_demo.sh", "--out-dir", "/out"]
+
+  # ====================================================================
+  # live-llm — real LLM run, needs .env with API key
+  # ====================================================================
+  live-llm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: multi-agent-cloud-optimization-recommender:demo
+    container_name: agent-recommender-live-llm
+    # Loads the host's .env into the container. ANTHROPIC_API_KEY or
+    # OPENAI_API_KEY must be set. If .env is missing, docker-compose
+    # errors loudly at startup (good — user fixes immediately).
+    env_file:
+      - .env
+    volumes:
+      - ./demo-output:/out
+    environment:
+      - AUDIT_DB_PATH=/out/.live_audit.db
+      # APP can be overridden from the host:
+      #   APP=app-12 docker compose up live-llm
+      - APP=${APP:-app-08}
+    command: ["./scripts/run_live_demo.sh", "--out-dir", "/out"]

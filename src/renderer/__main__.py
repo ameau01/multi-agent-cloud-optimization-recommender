@@ -8,6 +8,11 @@ Usage:
 
 Either output flag is optional; pass only the one you want regenerated.
 
+Pass `--mock-mode` to prepend a MOCK MODE banner on the rendered
+report (used by the hermetic demo container so a viewer can tell the
+report came from a replayed fixture, not a fresh LLM run). Affects
+only the report; the trace JSON is unchanged.
+
 For rendering against a live audit cycle (not a static composite file),
 use the wrapper script `scripts/render_recommendation.sh <app-NN>`, which
 composes from the audit DB before invoking this renderer.
@@ -37,6 +42,15 @@ def main() -> int:
         "--out-trace", type=Path, default=None,
         help="Write the rendered trace.json here.",
     )
+    parser.add_argument(
+        "--mock-mode", action="store_true",
+        help=(
+            "Prepend a MOCK MODE banner on the rendered report so a "
+            "viewer can tell the report came from a replayed fixture, "
+            "not a fresh LLM run. Affects --out-report only; the trace "
+            "JSON is unchanged."
+        ),
+    )
     args = parser.parse_args()
 
     if not args.composite.exists():
@@ -51,7 +65,9 @@ def main() -> int:
 
     if args.out_report is not None:
         args.out_report.parent.mkdir(parents=True, exist_ok=True)
-        args.out_report.write_text(render_report(composite))
+        args.out_report.write_text(
+            render_report(composite, mock_mode=args.mock_mode)
+        )
         print(f"wrote {args.out_report}")
 
     if args.out_trace is not None:

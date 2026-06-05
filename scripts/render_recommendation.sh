@@ -19,6 +19,10 @@
 #
 # Flags:
 #   --out FILE          Write to FILE instead of stdout.
+#   --mock-mode         Prepend a MOCK MODE banner on the report.
+#                       Used by the hermetic demo container so a viewer
+#                       can tell the report came from a replayed cycle
+#                       fixture rather than a live LLM run.
 #   -h, --help          Show this help message and exit.
 #
 # Examples:
@@ -44,9 +48,11 @@ fi
 
 CYCLE_ID=""
 OUT_FILE=""
+MOCK_MODE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT_FILE="$2"; shift 2 ;;
+    --mock-mode) MOCK_MODE="1"; shift ;;
     cycle_*) CYCLE_ID="$1"; shift ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -56,7 +62,7 @@ done
 # backticks in Python comments don't get parsed as command substitution
 # (was breaking the first version of this script). Bash vars get passed
 # as positional args via sys.argv instead.
-uv run python - "$APP_NAME" "$CYCLE_ID" "$OUT_FILE" <<'PY'
+uv run python - "$APP_NAME" "$CYCLE_ID" "$OUT_FILE" "$MOCK_MODE" <<'PY'
 """Pull the cycle's recommendation, map it to a Recommendation Pydantic
 object, render the markdown report, write to stdout or --out."""
 
@@ -73,6 +79,7 @@ from src.renderer import render_report
 app_name = sys.argv[1]
 cycle_id_in = sys.argv[2] or None
 out_file = sys.argv[3] or None
+mock_mode = bool(sys.argv[4]) if len(sys.argv) > 4 else False
 
 # Map "app-08" -> scenario id "08" (matches eval-set/expectations layout).
 m = re.match(r"^app-(\d{2})$", app_name)
@@ -182,7 +189,7 @@ rec = Recommendation(
 # from report_content are simply skipped, and the output is the
 # degenerate report (title, final-recommendation table, specific_change
 # prose).
-markdown = render_report(rec)  # type: ignore[arg-type]
+markdown = render_report(rec, mock_mode=mock_mode)  # type: ignore[arg-type]
 
 # Append the three-step reasoning sub-objects as named sections so the
 # rendered output reflects the agent's full reasoning chain, matching

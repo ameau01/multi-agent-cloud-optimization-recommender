@@ -224,7 +224,16 @@ def _handoff(rc: ReportContent) -> str | None:
 # ============================================================
 # Public entry point
 # ============================================================
-def render_report(composite: Composite) -> str:
+_MOCK_MODE_BANNER = (
+    "> **MOCK MODE** — This report was rendered from a replayed audit "
+    "cycle without making any live LLM calls. The reasoning, tool calls, "
+    "and evidence shown below were recorded during a real prior run and "
+    "are being replayed deterministically. To produce a fresh report "
+    "from a live run, see [`docs/running.md`](../docs/running.md)."
+)
+
+
+def render_report(composite: Composite, *, mock_mode: bool = False) -> str:
     """Return the markdown report text for a composite.
 
     Sections present in `composite.report_content` are rendered;
@@ -238,10 +247,21 @@ def render_report(composite: Composite) -> str:
     degenerate report — title block + final-recommendation table +
     `specific_change` prose. Use `getattr` so this stays a Liskov-safe
     pass-through rather than a hasattr-branch ladder.
+
+    Args:
+        composite: the source artifact.
+        mock_mode: if True, a blockquote MOCK MODE banner is prepended
+            above the title. Used by the hermetic demo container
+            (`docker compose up demo`) so a viewer can tell the report
+            came from a replayed fixture, not a fresh LLM run.
     """
     rc = getattr(composite, "report_content", None)
 
     sections: list[str] = []
+
+    # 0. Mock-mode banner (when rendering replayed cycle data).
+    if mock_mode:
+        sections.append(_MOCK_MODE_BANNER)
 
     # 1. Title block + banner stay together (no divider between).
     title = _title_block(rc, composite)

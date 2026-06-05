@@ -1,0 +1,54 @@
+# Baseline summary — integration-test-haiku-haiku
+================================================================
+
+Configuration
+-------------
+  apps       : 18
+
+Stage 1 — generation
+--------------------
+  scored apps   : 18 / 18
+  total elapsed : 0.0s  (avg 0.0s / app)
+
+Stage 2 — scoring (four layers)
+-------------------------------
+
+  layer         pass  fail   n/a  total
+  ------------ ----- ----- ----- ------
+  Shape           18     0     0     18
+  Correctness      9     9     0     18
+  Mid              6     3     9     18
+  Rich             5     4     9     18
+
+  all-four-PASS apps : 5 / 18
+
+  pass = correct verdict (explicit PASS, or correct short-circuit on
+         no-action scenarios where there's nothing to judge)
+  fail = wrong verdict (explicit FAIL)
+  n/a  = layer didn't run (Correctness gate failed, or scorer crashed)
+
+Per-app verdicts
+----------------
+
+  app       Shape  Correctness  Mid    Rich     elapsed
+  --------  -----  -----------  -----  -----   --------
+  app-01    PASS   PASS         PASS   PASS           -
+  app-02    PASS   PASS         FAIL   FAIL           -
+  app-03    PASS   PASS         PASS   PASS           -
+  app-04    PASS   PASS         PASS   PASS           -
+  app-05    PASS   FAIL         n/a    n/a            -
+  app-06    PASS   FAIL         n/a    n/a            -
+  app-07    PASS   FAIL         n/a    n/a            -
+  app-08    PASS   PASS         PASS   FAIL           -
+  app-09    PASS   PASS         FAIL   FAIL           -
+  app-10    PASS   FAIL         n/a    n/a            -
+  app-11    PASS   PASS         FAIL   FAIL           -
+  app-12    PASS   PASS         PASS   PASS           -
+  app-13    PASS   FAIL         n/a    n/a            -
+  app-14    PASS   PASS         PASS   PASS           -
+  app-15    PASS   FAIL         n/a    n/a            -
+  app-16    PASS   FAIL         n/a    n/a            -
+  app-17    PASS   FAIL         n/a    n/a            -
+  app-18    PASS   FAIL         n/a    n/a            -
+
+================================================================

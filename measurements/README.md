@@ -9,9 +9,12 @@ Real per-layer scores from baseline runs against the 18-scenario eval-set. These
 | `single-shot-haiku-summary.txt`  | Single-shot, no agents | Haiku                              | `baseline-runs/haiku-single-shot/` |
 | `single-shot-sonnet-summary.txt` | Single-shot, no agents | Sonnet                             | `baseline-runs/sonnet-single-shot/` |
 | `single-shot-opus-summary.txt`   | Single-shot, no agents | Opus                               | `baseline-runs/opus-single-shot/` |
-| `agentic-sonnet-haiku-summary.txt`  | Orchestrated multi-agent | Haiku specialists + Sonnet evaluator | `baseline-runs/integration-test-sonnet-haiku/` |
-| `agentic-sonnet-sonnet-summary.txt` | Orchestrated multi-agent | Sonnet specialists + Sonnet evaluator | `baseline-runs/integration-test-sonnet-sonnet/` |
-| `agentic-opus-opus-summary.txt`     | Orchestrated multi-agent | Opus specialists + Opus evaluator    | `baseline-runs/integration-test-opus-4-6/` |
+| `orchestrated-haiku-haiku-summary.txt`   | Orchestrated multi-agent | Haiku specialists + Haiku evaluator   | `baseline-runs/integration-test-haiku-haiku/` |
+| `orchestrated-sonnet-haiku-summary.txt`  | Orchestrated multi-agent | Haiku specialists + Sonnet evaluator  | `baseline-runs/integration-test-sonnet-haiku/` |
+| `orchestrated-sonnet-sonnet-summary.txt` | Orchestrated multi-agent | Sonnet specialists + Sonnet evaluator | `baseline-runs/integration-test-sonnet-sonnet/` |
+| `orchestrated-opus-opus-summary.txt`     | Orchestrated multi-agent | Opus specialists + Opus evaluator     | `baseline-runs/integration-test-opus-4-6/` |
+
+The README's headline table omits `orchestrated-sonnet-haiku-summary.txt` (Haiku specialists + Sonnet evaluator) to keep the comparison clean — it's the cheap-specialist + capable-evaluator tier and is kept here as a discussion piece: a controlled-experiment comparison against `orchestrated-haiku-haiku-summary.txt` shows the evaluator tier alone accounts for an 8-point Correctness swing (9/18 → 17/18) with specialists held constant at Haiku.
 
 Each file is a polished single-page summary: configuration block, generation totals, per-layer `pass / fail / n/a / total` table, and per-app verdicts.
 

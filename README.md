@@ -12,6 +12,8 @@
 - Design documentation complete (architecture, agents, harnesses, MCP contract, audit trail, evaluation, decisions). 
 - MCP Server with Pydantic model added.
 - EvalSet with golden answers and evaluator code complete.
+- Agent orchestration fully implemented with langgraph studio support.
+
 
 **Trust the recommendation because you can trace it, not because you trust the model.**
 
@@ -111,12 +113,12 @@ Every arrow crosses one or more harnesses — see [ARCHITECTURE.md](ARCHITECTURE
 
 | Baseline | Shape (18) | Correctness (18) | Mid | Rich |
 | :--- | :--- | :--- | :--- | :--- |
-| Single-shot Haiku, same telemetry, no structure | 12 | 4 | 1 | 0 |
-| Single-shot Sonnet | 18 | 4 | 2 | 0 |
-| Single-shot Opus | 18 | 3 | 1 | 0 |
-| Orchestrated cheap (Haiku + Sonnet) | 18 | 17 | 16 | 15 |
-| Orchestrated mid (Sonnet + Sonnet) | 18 | 15 | 15 | 14 |
-| **Orchestrated heavy (Opus + Opus)** | **18** | **18** | **18** | **18** |
+| Single-shot (Haiku)         | 12 | 4  | 1  | 0  |
+| Single-shot (Sonnet)        | 18 | 4  | 2  | 0  |
+| Single-shot (Opus)          | 18 | 3  | 1  | 0  |
+| Orchestrated (Haiku)        | 18 | 9  | 6  | 5  |
+| Orchestrated (Sonnet)       | 18 | 15 | 15 | 14 |
+| **Orchestrated (Opus)**     | **18** | **18** | **18** | **18** |
 
 *Real measurements (2026-06-04). Per-run summaries and methodology in [`measurements/`](measurements/). Re-runs may shift counts slightly due to LLM non-determinism.*
 
@@ -165,32 +167,45 @@ Finding: issue_found, "optimize the top 6 queries; add 2 read replicas
 
 The full chain is `reviews -> supervisor_decisions -> specialist_steps -> specialist_findings -> evaluator_drift_checks -> evaluator_records -> action_harness_gate_records -> review_packets -> hitl_decisions`. Walk it forward or backward — either direction reconstructs the recorded reasoning. (Replay reconstructs what happened; it does not re-derive answers by re-running the model. See [`docs/audit-trail.md`](docs/audit-trail.md).)
 
+See the rendered output for scenarios 02, 07, and 08 in [`sample_runs/`](sample_runs/).
+
 Full architecture and flow detail lives in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Quick start
 
+Three paths. Full details in [`docs/running.md`](docs/running.md).
+
+### Path A — Docker, mock mode
+
+Needs: Docker.
+
 ```bash
-# Install
-uv sync
-
-# Fetch the dataset from Hugging Face on first run (cached after that)
-python -m src.data_loader
-
-# Run one scenario end-to-end
-make demo
-
-# Run the smoke test (3 scenarios)
-make smoke
-
-# Run the full eval (18 scenarios)
-make eval
-
-# Replay a scenario from the audit trail
-python -m scripts.replay --scenario 8
+docker compose up demo
+open ./demo-output/report.md
 ```
 
-The dataset lives at
-[`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations). The first run downloads it via `huggingface_hub.snapshot_download` and caches it at `<repo-root>/.hf_cache/` (about 12 MB). The cache is gitignored, lives inside the repo so the project stays self-contained, and persists across sessions. Reset with `rm -rf .hf_cache`. The default location is set by `HF_HOME=.hf_cache` in `.env.example`; copy that to `.env` and edit it (relative paths resolve against the project root, absolute paths are used as-is) if you want the cache somewhere else, including a shared system cache. (These commands target the built system; see the status note above for what is committed at this stage.)
+Replays a vendored app-08 cycle (no LLM, no API key, no network). The rendered report carries a MOCK MODE banner.
+
+### Path B — Docker, live LLM
+
+Needs: Docker, internet (LLM API + first-run Hugging Face dataset fetch ~12 MB), API key in `.env`.
+
+```bash
+cp .env.example .env && $EDITOR .env    # add ANTHROPIC_API_KEY or OPENAI_API_KEY
+docker compose up live-llm              # runs app-08 by default; ~2 min, ~$0.10
+open ./demo-output/report.md
+```
+
+### Path C — Local, real LLM (developer)
+
+Needs: `bash`, `uv`, internet, API key in `.env`. Optional: `LANGSMITH_API_KEY` for trace export.
+
+```bash
+uv sync
+cp .env.example .env && $EDITOR .env    # add API key
+make scenario APP=app-08                # one scenario, ~$0.10
+make help                               # everything else (integration, baselines, langgraph studio, …)
+```
 
 ## Repo orientation
 
