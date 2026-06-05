@@ -122,6 +122,8 @@ Here's the graph and a finished cycle inside Studio (`agent` graph, `app-08`):
 
 [![LangGraph Studio showing the agent graph on the left — supervisor routing to system_mapper, the three tier specialists, cross_tier_evaluator, gate, and cycle_complete — and on the right the structured recommendation produced by cross_tier_evaluator: finding_type=issue_found, primary_tier=database, with reasoning, root_cause, secondary_tier, specific_change, and summary fields expanded. Click for full size.](images/langgraph-screen-lores.jpg)](images/langgraph-screen-hires.jpg)
 
+The final synthesized recommendation lives inside the `cross_tier_evaluator` node, under the `recommendation` field — that's what the right panel in the screenshot is showing (`finding_type`, `primary_tier`, `reasoning`, `root_cause`, `specific_change`, …). This is the object that gets handed downstream to the report renderer and the audit trail.
+
 
 ## What the dataset looks like
 
