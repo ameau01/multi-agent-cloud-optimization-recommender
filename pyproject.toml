@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [project]
-name = "multi-agent-cloud-optimization-recommender"
+name = "auditable-multi-agent-recommender"
 version = "0.1.0"
 description = "A multi-agent system that reads cloud telemetry and recommends optimization changes."
 authors = [{name = "Alexander Meau"}]

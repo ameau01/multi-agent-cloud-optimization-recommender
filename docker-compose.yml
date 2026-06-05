@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: multi-agent-cloud-optimization-recommender:demo
+    image: auditable-multi-agent-recommender:demo
     container_name: agent-recommender-demo
     volumes:
       - ./demo-output:/out
@@ -40,10 +40,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: multi-agent-cloud-optimization-recommender:demo
+    image: auditable-multi-agent-recommender:demo
     container_name: agent-recommender-live-llm
-    # Loads the host's .env into the container. ANTHROPIC_API_KEY or
-    # OPENAI_API_KEY must be set. If .env is missing, docker-compose
+    # Loads the host's .env into the container.
+    # ANTHROPIC_API_KEY  must be set. If .env is missing, docker-compose
     # errors loudly at startup (good — user fixes immediately).
     env_file:
       - .env

@@ -245,7 +245,7 @@ MIT.
 ## Citation
 
 ```
-@misc{multi_agent_cloud_optimization_recommender_2026,
+@misc{auditable_multi_agent_recommender_2026,
   title  = {Auditable Multi-Agent Recommender},
   author = {Alexander Meau},
   year   = {2026},
