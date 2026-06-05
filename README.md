@@ -1,4 +1,4 @@
-# Multi-Agent Cloud-Optimization Recommender
+# Auditable Multi-Aagent Recommender
 
 [![Hugging Face Dataset](https://img.shields.io/badge/Dataset-synthesized--cloud--optimization--recommendations-yellow)](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -246,7 +246,7 @@ MIT.
 
 ```
 @misc{multi_agent_cloud_optimization_recommender_2026,
-  title  = {Multi-Agent Cloud-Optimization Recommender},
+  title  = {Auditable Multi-Agent Recommender},
   author = {Alexander Meau},
   year   = {2026},
   version = {1.0.0}
