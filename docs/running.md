@@ -88,6 +88,39 @@ bash scripts/render_evidence_trace.sh app-08 --format json
 
 If `LANGSMITH_API_KEY` is set in `.env`, every cycle's reasoning trace is exported to the LangSmith dashboard at `https://smith.langchain.com/o/<your-org>/projects/p/<your-project>`. Useful for visualizing the multi-agent graph and individual LLM calls.
 
+### LangGraph dev / Studio (optional)
+
+The agent graph can also be driven interactively from LangGraph Studio — useful for stepping through a cycle node-by-node, inspecting state at each transition, and replaying inputs without re-running the CLI.
+
+```bash
+make langgraph              # recommended — boots local server + opens Studio
+# or: ./scripts/run_langgraph_dev.sh
+```
+
+The local server reads [`langgraph.json`](../langgraph.json) and exposes **two graphs**:
+
+| Graph in Studio   | What it runs                                            | Needs API key? |
+| :---------------- | :------------------------------------------------------ | :------------- |
+| `agent`           | Live multi-agent cycle — real LLM calls end-to-end      | Yes — `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in `.env` |
+| `agent_replay`    | Replays a vendored cycle fixture deterministically — no LLM, no network | No |
+
+Pick `agent_replay` for a zero-cost walk-through against the bundled `app-08` fixture; pick `agent` to drive a fresh cycle.
+
+**Inputs to provide in Studio's Input panel** (both graphs accept the same shape):
+
+```json
+{
+  "application_id": "app-08",
+  "cycle_id": "cycle-id-001"
+}
+```
+
+- `application_id` — the scenario, always lowercase `app-NN` (e.g. `app-02`, `app-07`, `app-08`).
+- `cycle_id` — any unique string for this run (e.g. `cycle-id-001`). The orchestrator stamps a generated id if you omit it on the `agent` graph; the `agent_replay` graph uses the value you provide to key its in-memory audit store.
+
+<!-- TODO: screenshot of LangGraph Studio with both graphs visible + the Input panel filled in -->
+
+
 ## What the dataset looks like
 
 18 scenarios, each with telemetry (Terraform infrastructure spec + 14 days of metric history + business-context sidecar) and a hand-crafted gold recommendation. Published as `ameau01/synthesized-cloud-optimization-recommendations` on Hugging Face — pulled automatically by the system on first run.

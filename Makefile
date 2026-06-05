@@ -30,12 +30,18 @@ test-ci: ## Run the CI suite (ruff + mypy + pytest).
 eval: ## Score one app's gold answer with the LLM judge. Override APP=app-NN.
 	./scripts/run_demo.sh --with-judge
 
-scenario: ## Run the orchestrated pipeline on one scenario. Usage: make scenario APP=app-08
+scenario: ## Run agents + render report + score against gold for one scenario. Usage: make scenario APP=app-08
 	@if [ -z "$(APP)" ]; then \
 		echo "ERROR: APP is required. Usage: make scenario APP=app-08" >&2; \
 		exit 2; \
 	fi
+	@mkdir -p ./demo-output
 	./scripts/run_agents.sh $(APP)
+	./scripts/render_recommendation.sh $(APP) --out ./demo-output/report.md
+	@echo ""
+	@echo "Wrote ./demo-output/report.md"
+	@echo ""
+	./scripts/score_recommendation.sh $(APP)
 
 integration: ## Full 18-scenario integration test (orchestrated, ~30-50 min, real LLM).
 	./scripts/integration_test_all.sh

@@ -45,11 +45,11 @@ produces for it, then the trace that produced the report.
 
 ## The three reports
 
-| File                                | Scenario | Tier pairing                       | Action category               | What it demonstrates                                                                  |
-|-------------------------------------|----------|------------------------------------|-------------------------------|---------------------------------------------------------------------------------------|
-| `reports/scenario_02_report.md`     | 02       | compute (single-tier)              | `scaling_policy_change`       | Time-pattern recognition. Spiky load fixed by scheduled scaling, not a bigger box.    |
-| `reports/scenario_07_report.md`     | 07       | cache -> database                  | `cache_capacity_adjustment`   | Upstream-cause identification. Cache pressure cascades into DB load and app latency.  |
-| `reports/scenario_08_report.md`     | 08       | database -> compute                | `query_cache_optimization`    | Cross-tier reasoning. DB query latency cascades into compute waste; fix at the DB.    |
+| File                                                                  | Scenario | Tier pairing            | Action category             | What it demonstrates                                                                  |
+|-----------------------------------------------------------------------|----------|-------------------------|-----------------------------|---------------------------------------------------------------------------------------|
+| [`reports/scenario_02_report.md`](reports/scenario_02_report.md)      | 02       | compute (single-tier)   | `scaling_policy_change`     | Time-pattern recognition. Spiky load fixed by scheduled scaling, not a bigger box.    |
+| [`reports/scenario_07_report.md`](reports/scenario_07_report.md)      | 07       | cache -> database       | `cache_capacity_adjustment` | Upstream-cause identification. Cache pressure cascades into DB load and app latency.  |
+| [`reports/scenario_08_report.md`](reports/scenario_08_report.md)      | 08       | database -> compute     | `query_cache_optimization`  | Cross-tier reasoning. DB query latency cascades into compute waste; fix at the DB.    |
 
 Three different primary tiers. Three different action categories. One
 single-tier scenario and two cross-tier scenarios. A reviewer scanning

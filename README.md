@@ -169,7 +169,7 @@ The full chain is `reviews -> supervisor_decisions -> specialist_steps -> specia
 
 See the rendered output for scenarios 02, 07, and 08 in [`sample_runs/`](sample_runs/).
 
-Full architecture and flow detail lives in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Full architecture and flow detail lives in [`ARCHITECTURE.md`](ARCHITECTURE.md). Per-agent roles, prompts, and decision spaces are in [`docs/agents.md`](docs/agents.md).
 
 ## Quick start
 
@@ -203,7 +203,8 @@ Needs: `bash`, `uv`, internet, API key in `.env`. Optional: `LANGSMITH_API_KEY` 
 ```bash
 uv sync
 cp .env.example .env && $EDITOR .env    # add API key
-make scenario APP=app-08                # one scenario, ~$0.10
+make scenario APP=app-08                # agents + render + score, ~$0.10
+open ./demo-output/report.md
 make help                               # everything else (integration, baselines, langgraph studio, …)
 ```
 
