@@ -8,7 +8,7 @@ This doc covers what the audit trail captures, how it supports replay, why the s
 
 Every significant event in a review cycle is a record. The trail is rich enough that a reviewer reading it should be able to reconstruct exactly what the system did and why.
 
-These records split across two tables. The reasoning events (Supervisor decisions, ReAct steps, specialist findings, evaluator records, recommendation, HITL decisions) land in `audit_records` — the agent's story for the human reviewer. The enforcement events (Input Harness validations, Action Harness policy checks and gate verdicts, Reasoning Harness checks, Orchestration Harness cycle-level checks) land in `harness_trail`. See "Storage shape" below for the per-table schemas.
+These records split across two tables. The reasoning events (Supervisor decisions, ReAct steps, specialist findings, evaluator records, recommendation, HITL decisions) land in `audit_records` — the agent's story for the human reviewer. The enforcement events (Input Harness validations, Reasoning Harness checks, Action Harness policy checks and gate verdicts, Orchestration Harness cycle-level checks) land in `harness_trail`. See "Storage shape" below for the per-table schemas.
 
 **Trigger and ingest records** When a review was requested, by what trigger, against which application, with what scenario hash.
 
@@ -155,7 +155,7 @@ So: the decision report is `audit_records WHERE cycle_id = ? AND category = 'dec
 
 ### `harness_trail` — what the harnesses verified or rejected
 
-The second table records *enforcement events*: validations from the Input Harness, policy checks and gate verdicts from the Action Harness, and pre-produce checks from the Reasoning Harness. Kept separate from `audit_records` so the agent's reasoning story stays focused on substance — what the agent *did* — while `harness_trail` tells the parallel story of what was *verified or prevented*.
+The second table records *enforcement events*: validations from the Input Harness, pre-produce checks from the Reasoning Harness, policy checks and gate verdicts from the Action Harness, and cycle-level checks from the Orchestration Harness. Kept separate from `audit_records` so the agent's reasoning story stays focused on substance — what the agent *did* — while `harness_trail` tells the parallel story of what was *verified or prevented*.
 
 ```text
 harness_trail

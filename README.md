@@ -37,7 +37,7 @@ Key design decisions that follow from those constraints:
 - **Frontier model end-to-end** Specialists run ReAct loops over rich telemetry (nested distributions, time patterns, per-instance breakouts); the Evaluator synthesizes across them. Both warrant a capable model. Models are pluggable via `.env` for cost-sensitive deployments.
 - **Narrow Action Harness** The system is a recommender. Inflating the harness with execution would dilute the identity and invite a conflict of interest.
 
-The architecture is the direct response to these constraints: six agents in a hierarchy, governed by four cross-cutting harnesses (evidence-binding, auditability, scope discipline, and replayability). The system operates on zero internal trust: the Evaluator explicitly drift-checks every specialist. The human does not trust the agents; they trust the audit trail, because every step of the reasoning is traceable to the evidence that produced it.
+The architecture is the direct response to these constraints: six agents in a hierarchy, governed by four cross-cutting harnesses — Input, Reasoning, Action, Orchestration — that enforce evidence-binding, auditability, scope discipline, and replayability. The system operates on zero internal trust: the Evaluator explicitly drift-checks every specialist. The human does not trust the agents; they trust the audit trail, because every step of the reasoning is traceable to the evidence that produced it.
 
 Full per-decision reasoning, and the alternatives rejected, lives in
 [`docs/decisions.md`](docs/decisions.md).
@@ -95,7 +95,7 @@ Every arrow crosses one or more harnesses — see [ARCHITECTURE.md](ARCHITECTURE
 ## What's in the project
 
 - **6 agents.** Supervisor, System Mapper, three Tier Specialists, Cross-Tier Evaluator.
-- **4 harnesses.** Input, Action, Reasoning, Orchestration.
+- **4 harnesses.** Input, Reasoning, Action, Orchestration.
 - **An MCP server exposing the read surface.** Specialists query telemetry through a Model Context Protocol tool surface — the scoped, per-tier read contract a specialist is allowed to see becomes its MCP toolset, so cross-tier access is structurally impossible. [`docs/mcp-server.md`](docs/mcp-server.md).
 - **A published Hugging Face dataset** [`ameau01/synthesized-cloud-optimization-recommendations`](https://huggingface.co/datasets/ameau01/synthesized-cloud-optimization-recommendations). 18 scenarios, each with a hand-crafted target recommendation. The system is graded against that recommendation, not against itself.
 - **A replayable audit trail** Every recommendation links back to the specific evidence that justified it.
@@ -103,7 +103,7 @@ Every arrow crosses one or more harnesses — see [ARCHITECTURE.md](ARCHITECTURE
 
 ### Measured scores by baseline
 
-| Baseline | Shape (18) | Correctness (18) | Mid | Rich |
+| Baseline | Shape (18) | Correctness (18) | Mid (18) | Rich (18) |
 | :--- | :--- | :--- | :--- | :--- |
 | Single-shot (Haiku)         | 12 | 4  | 1  | 0  |
 | Single-shot (Sonnet)        | 18 | 4  | 2  | 0  |
@@ -122,8 +122,7 @@ Take scenario 08: application latency is rising and it looks like a compute prob
 
 **1. Trigger** A review request arrives. The Input Harness validates the target scenario's data (Terraform + 14 days of telemetry + sidecar metadata). The scenario hash and validation outcomes are logged.
 
-**2. System Mapper** Parses the Terraform. Identifies tiers: compute, database, cache, network. Builds the dependency graph. Produces an analysis plan: "invoke Compute, Data Layer, and Network Analysts; check
-the compute-to-database cross-tier pair." Scenario 08 has no cache or network tier, so only Compute and Data Layer Analysts are invoked.
+**2. System Mapper** Parses the Terraform. Identifies tiers in scope: compute and database (cache and network absent in this topology). Builds the dependency graph. Produces an analysis plan: "invoke Compute and Data Layer Analysts; check the compute-to-database cross-tier pair."
 
 **3. Supervisor** Reads the analysis plan. Decides which specialists to invoke. Logs the invocation manifest.
 
@@ -155,7 +154,7 @@ Finding: issue_found, "optimize the top 6 queries; add 2 read replicas
 
 **8. Action Harness** Gates the recommendation. Checks well-formedness, evidence completeness (every cited reference resolves to a logged observation), severity, duplication. Verdict: pass. A recommendation with a dangling evidence reference would fail here and never reach the human.
 
-**9. HITL** The review packet is surfaced: recommendation, evidence chain, two levels of confidence, drift-check verdicts. The reviewer can drill into any record.
+**9. HITL** The review packet is surfaced: recommendation, evidence chain, two levels of confidence (each specialist's own confidence in its finding, plus the Cross-Tier Evaluator's confidence in the synthesis), drift-check verdicts. The reviewer can drill into any record.
 
 The full chain is `reviews -> supervisor_decisions -> specialist_steps -> specialist_findings -> evaluator_drift_checks -> evaluator_records -> action_harness_gate_records -> review_packets -> hitl_decisions`. Walk it forward or backward — either direction reconstructs the recorded reasoning. (Replay reconstructs what happened; it does not re-derive answers by re-running the model. See [`docs/audit-trail.md`](docs/audit-trail.md).)
 
