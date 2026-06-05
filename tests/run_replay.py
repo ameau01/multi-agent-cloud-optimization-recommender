@@ -91,10 +91,20 @@ def main(argv: list[str] | None = None) -> int:
     cycle_id = args.cycle_id or _new_cycle_id()
     print(f"Invoking replay graph: app={args.app} cycle_id={cycle_id}",
           file=sys.stderr)
-    graph.invoke({"application_id": args.app, "cycle_id": cycle_id})
+    final_state = graph.invoke({"application_id": args.app, "cycle_id": cycle_id})
+
+    # The replay_init node may mint a fresh cycle_id (when the DB is empty
+    # and the passed-in id is treated as "stale"). The rows actually written
+    # use the minted id, not the one we passed. Read it back from final_state
+    # so the bash wrapper's Stage 2 looks up the right id. Fallback to the
+    # passed-in id only if final_state somehow lacks it.
+    actual_cycle_id = final_state.get("cycle_id") or cycle_id
+    if actual_cycle_id != cycle_id:
+        print(f"  (replay_init minted fresh cycle_id={actual_cycle_id})",
+              file=sys.stderr)
 
     # Stdout = cycle_id only, so a bash wrapper can capture it cleanly.
-    print(cycle_id)
+    print(actual_cycle_id)
     return 0
 
 
